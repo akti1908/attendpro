@@ -75,6 +75,7 @@ bindLogoutButton();
 applyTheme(state.theme);
 renderApp();
 void bootstrapCloudSync();
+registerServiceWorker();
 
 function bindTopNavigation() {
   const navMap = {
@@ -97,6 +98,16 @@ function bindTopNavigation() {
       if (view !== "home") state.editMode = false;
       saveState();
       renderApp();
+    });
+  });
+}
+
+function registerServiceWorker() {
+  if (!("serviceWorker" in navigator)) return;
+
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./service-worker.js").catch((error) => {
+      console.error("Service worker registration error:", error);
     });
   });
 }
