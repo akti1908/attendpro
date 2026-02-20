@@ -23,6 +23,9 @@
         <button id="menu-toggle" class="btn small-btn menu-toggle" type="button" aria-expanded="false" aria-controls="topbar-menu">
           Меню
         </button>
+        <button id="theme-toggle" class="btn small-btn theme-toggle-btn" type="button" aria-label="Переключить тему" aria-pressed="true">
+          <span class="theme-toggle-icon" aria-hidden="true">☾</span>
+        </button>
       </div>
 
       <div id="topbar-menu" class="topbar-menu">
@@ -35,15 +38,6 @@
           <button id="go-salary" class="btn">ЗП</button>
         </nav>
         <div class="topbar-meta">
-          <label class="theme-control" for="theme-select">
-            Тема
-            <select id="theme-select" class="theme-select">
-              <option value="dark">Темная</option>
-              <option value="light">Светлая</option>
-              <option value="ocean">Океан</option>
-              <option value="sunset">Закат</option>
-            </select>
-          </label>
           <div class="topbar-auth">
             <span id="current-user" class="muted"></span>
             <button id="logout-btn" class="btn small-btn is-hidden">Выйти</button>

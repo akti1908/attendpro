@@ -9,7 +9,7 @@ import { renderAuth } from "./components/Auth.js";
 
 const STORAGE_KEY = "attendpro_state_v4";
 const APP_VERSION = 5;
-const ALLOWED_THEMES = ["dark", "light", "ocean", "sunset"];
+const ALLOWED_THEMES = ["dark", "light"];
 const CLOUD_SYNC_DEBOUNCE_MS = 1200;
 const MOBILE_LAYOUT_MAX_WIDTH = 980;
 const LEGACY_TEXT_MAP = {
@@ -186,12 +186,17 @@ function registerServiceWorker() {
 }
 
 function bindThemeControl() {
-  const select = document.getElementById("theme-select");
-  if (!select) return;
+  const button = document.getElementById("theme-toggle");
+  if (!button) return;
 
-  select.value = normalizeTheme(state.theme);
-  select.addEventListener("change", (event) => {
-    setTheme(event.currentTarget.value);
+  syncThemeToggleButton(button, normalizeTheme(state.theme));
+  button.addEventListener("click", () => {
+    const currentTheme = normalizeTheme(state.theme);
+    const nextTheme = currentTheme === "dark" ? "light" : "dark";
+    button.classList.remove("is-animating");
+    void button.offsetWidth;
+    button.classList.add("is-animating");
+    setTheme(nextTheme);
   });
 }
 
@@ -238,10 +243,9 @@ function setTheme(themeName) {
 function applyTheme(themeName) {
   const normalizedTheme = normalizeTheme(themeName);
   document.body.setAttribute("data-theme", normalizedTheme);
-
-  const select = document.getElementById("theme-select");
-  if (select && select.value !== normalizedTheme) {
-    select.value = normalizedTheme;
+  const button = document.getElementById("theme-toggle");
+  if (button) {
+    syncThemeToggleButton(button, normalizedTheme);
   }
 }
 
@@ -249,6 +253,14 @@ function normalizeTheme(themeName) {
   const value = String(themeName || "").toLowerCase();
   if (ALLOWED_THEMES.includes(value)) return value;
   return "dark";
+}
+
+function syncThemeToggleButton(button, themeName) {
+  const isDark = themeName === "dark";
+  button.setAttribute("aria-pressed", isDark ? "true" : "false");
+  button.setAttribute("title", isDark ? "Переключить на светлую тему" : "Переключить на темную тему");
+  const icon = button.querySelector(".theme-toggle-icon");
+  if (icon) icon.textContent = isDark ? "☾" : "☀";
 }
 
 function normalizeLegacyText(value) {
