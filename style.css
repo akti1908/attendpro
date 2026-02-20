@@ -113,15 +113,27 @@ body.is-auth-required .nav-actions {
   justify-self: center;
 }
 
-.theme-toggle-btn {
+.topbar-controls {
   grid-column: 3;
   justify-self: end;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.theme-toggle-btn {
   min-width: 42px;
   width: 42px;
   padding: 0;
   border-radius: 999px;
   position: relative;
   transition: transform 0.28s ease, background 0.2s ease;
+}
+
+.logout-head-btn {
+  min-height: 42px;
+  padding: 0 10px;
+  border-radius: 999px;
 }
 
 .theme-toggle-icon {
@@ -134,17 +146,11 @@ body.is-auth-required .nav-actions {
   transform: rotate(180deg) scale(1.08);
 }
 
-.topbar-auth {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.topbar-auth .muted {
+.topbar-meta .muted {
   white-space: nowrap;
 }
 
-.topbar-auth .muted:empty {
+.topbar-meta .muted:empty {
   display: none;
 }
 
@@ -687,11 +693,12 @@ input[type="radio"] {
     width: 100%;
     display: grid;
     gap: 8px;
+    margin-left: 0;
+    justify-content: start;
   }
 
-  .topbar-auth {
-    width: 100%;
-    justify-content: space-between;
+  .topbar-controls {
+    gap: 5px;
   }
 }
 
