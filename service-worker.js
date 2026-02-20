@@ -1,4 +1,4 @@
-const CACHE_NAME = "attendpro-cache-v2";
+const CACHE_NAME = "attendpro-cache-v3";
 
 const APP_SHELL = [
   "./",
@@ -24,20 +24,28 @@ const APP_SHELL = [
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)).then(() => self.skipWaiting())
+    caches.open(CACHE_NAME)
+      .then((cache) => Promise.allSettled(APP_SHELL.map((path) => cache.add(path))))
+      .then(() => self.skipWaiting())
   );
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((keys) => {
-      return Promise.all(
+    caches.keys()
+      .then((keys) => Promise.all(
         keys
           .filter((key) => key !== CACHE_NAME)
           .map((key) => caches.delete(key))
-      );
-    }).then(() => self.clients.claim())
+      ))
+      .then(() => self.clients.claim())
   );
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data?.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
 });
 
 self.addEventListener("fetch", (event) => {
@@ -47,13 +55,20 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
-  if (request.mode === "navigate") {
+  if (shouldUseNetworkFirst(request, url)) {
     event.respondWith(networkFirst(request));
     return;
   }
 
   event.respondWith(cacheFirst(request));
 });
+
+function shouldUseNetworkFirst(request, url) {
+  if (request.mode === "navigate") return true;
+  if (url.pathname === "/" || url.pathname.endsWith("/index.html")) return true;
+
+  return [".js", ".css", ".html", ".webmanifest"].some((ext) => url.pathname.endsWith(ext));
+}
 
 async function networkFirst(request) {
   try {
@@ -64,7 +79,7 @@ async function networkFirst(request) {
     }
     return response;
   } catch (_error) {
-    const cached = await caches.match(request);
+    const cached = await caches.match(request, { ignoreSearch: true });
     if (cached) return cached;
     return caches.match("./index.html");
   }

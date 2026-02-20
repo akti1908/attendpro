@@ -1,10 +1,10 @@
-// Экран входа и регистрации (офлайн, через LocalStorage).
+// Экран входа и регистрации.
 export function renderAuth(root, ctx) {
   root.innerHTML = `
     <section class="auth-wrap">
       <article class="card auth-card">
         <h2 class="section-title">Вход в AttendPro</h2>
-        <p class="muted">Данные хранятся локально на этом устройстве.</p>
+        <p class="muted">Войдите в аккаунт, чтобы загрузить данные из облака.</p>
 
         <div class="auth-tabs">
           <button id="auth-tab-login" class="btn small-btn btn-active" type="button">Вход</button>
@@ -47,8 +47,7 @@ export function renderAuth(root, ctx) {
     loginTab.classList.toggle("btn-active", isLogin);
     registerTab.classList.toggle("btn-active", !isLogin);
     message.textContent = "";
-    message.classList.remove("auth-error");
-    message.classList.remove("auth-success");
+    message.classList.remove("auth-error", "auth-success");
   };
 
   loginTab.addEventListener("click", () => setMode("login"));

@@ -67,6 +67,7 @@ let state = loadState();
 let cloudSyncTimer = null;
 let cloudSyncInFlight = false;
 let cloudSyncQueued = false;
+let swRefreshTriggered = false;
 
 const root = document.getElementById("app");
 bindTopNavigation();
@@ -106,8 +107,33 @@ function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
 
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("./service-worker.js").catch((error) => {
-      console.error("Service worker registration error:", error);
+    navigator.serviceWorker.register("./service-worker.js", { updateViaCache: "none" })
+      .then((registration) => {
+        registration.update().catch(() => {});
+
+        if (registration.waiting) {
+          registration.waiting.postMessage({ type: "SKIP_WAITING" });
+        }
+
+        registration.addEventListener("updatefound", () => {
+          const installing = registration.installing;
+          if (!installing) return;
+
+          installing.addEventListener("statechange", () => {
+            if (installing.state === "installed" && navigator.serviceWorker.controller) {
+              registration.waiting?.postMessage({ type: "SKIP_WAITING" });
+            }
+          });
+        });
+      })
+      .catch((error) => {
+        console.error("Service worker registration error:", error);
+      });
+
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (swRefreshTriggered) return;
+      swRefreshTriggered = true;
+      window.location.reload();
     });
   });
 }
@@ -1148,7 +1174,7 @@ async function loginUser(payload) {
   }
 
   if (localUser) return { ok: false, message: "Неверный пароль." };
-  return { ok: false, message: "Пользователь не найден." };
+  return { ok: false, message: "Пользователь не найден на этом устройстве. Проверьте облачную синхронизацию." };
 }
 
 function logoutUser() {
