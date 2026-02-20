@@ -5,6 +5,7 @@ import { renderGroupsManager } from "./components/GroupCard.js";
 import { renderSession } from "./components/Session.js";
 import { renderStatistics } from "./components/Statistics.js";
 import { renderSalary } from "./components/Salary.js";
+import { renderAuth } from "./components/Auth.js";
 
 const STORAGE_KEY = "attendpro_state_v4";
 const APP_VERSION = 4;
@@ -48,6 +49,7 @@ let state = loadState();
 const root = document.getElementById("app");
 bindTopNavigation();
 bindThemeControl();
+bindLogoutButton();
 applyTheme(state.theme);
 renderApp();
 
@@ -66,6 +68,7 @@ function bindTopNavigation() {
     if (!button) return;
 
     button.addEventListener("click", () => {
+      if (!isAuthenticated()) return;
       if (state.view === view) return;
       state.view = view;
       if (view !== "home") state.editMode = false;
@@ -83,6 +86,32 @@ function bindThemeControl() {
   select.addEventListener("change", (event) => {
     setTheme(event.currentTarget.value);
   });
+}
+
+function bindLogoutButton() {
+  const logoutButton = document.getElementById("logout-btn");
+  if (!logoutButton) return;
+
+  logoutButton.addEventListener("click", () => {
+    logoutUser();
+  });
+}
+
+function refreshTopbarAuthState() {
+  const isLoggedIn = isAuthenticated();
+  const currentUser = getCurrentUser();
+  const logoutButton = document.getElementById("logout-btn");
+  const currentUserNode = document.getElementById("current-user");
+
+  document.body.classList.toggle("is-guest", !isLoggedIn);
+
+  if (logoutButton) {
+    logoutButton.classList.toggle("is-hidden", !isLoggedIn);
+  }
+
+  if (currentUserNode) {
+    currentUserNode.textContent = isLoggedIn && currentUser ? currentUser.name : "Гость";
+  }
 }
 
 function setTheme(themeName) {
@@ -113,8 +142,14 @@ function normalizeTheme(themeName) {
 function renderApp() {
   if (!root) return;
   applyTheme(state.theme);
+  refreshTopbarAuthState();
 
   const ctx = buildContext();
+  if (!isAuthenticated()) {
+    renderAuth(root, ctx);
+    markActiveNavButton();
+    return;
+  }
 
   if (state.view === "calendar") {
     renderCalendar(root, ctx);
@@ -149,6 +184,8 @@ function markActiveNavButton() {
     button.classList.remove("btn-active");
   });
 
+  if (!isAuthenticated()) return;
+
   const activeButton = document.getElementById(viewToButtonId[state.view] || "go-today");
   if (activeButton) activeButton.classList.add("btn-active");
 }
@@ -156,6 +193,7 @@ function markActiveNavButton() {
 function buildContext() {
   return {
     state,
+    currentUser: getCurrentUser(),
     weekDays,
     packageOptions,
     getTodayISO,
@@ -188,7 +226,10 @@ function buildContext() {
       exportStatisticsCSV,
       exportBackupJSON,
       importBackupFromFile,
-      setTheme
+      setTheme,
+      registerUser,
+      loginUser,
+      logoutUser
     }
   };
 }
@@ -202,6 +243,10 @@ function createInitialState() {
     selectedDate: todayISO,
     calendarDate: monthStartISO(todayISO),
     salaryMonth: todayISO.slice(0, 7),
+    users: [],
+    auth: {
+      currentUserId: null
+    },
     editMode: false,
     students: [],
     groups: [],
@@ -237,6 +282,8 @@ function normalizeState(input) {
   next.selectedDate = ensureISODate(next.selectedDate, defaults.selectedDate);
   next.calendarDate = ensureISODate(next.calendarDate, monthStartISO(next.selectedDate));
   next.salaryMonth = ensureMonthISO(next.salaryMonth, defaults.salaryMonth);
+  next.users = Array.isArray(next.users) ? next.users.map(normalizeUser).filter(Boolean) : [];
+  next.auth = normalizeAuth(next.auth, next.users);
   next.editMode = Boolean(next.editMode);
   next.students = Array.isArray(next.students) ? next.students.map(normalizeStudent) : [];
   next.groups = Array.isArray(next.groups) ? next.groups.map(normalizeGroup) : [];
@@ -309,6 +356,35 @@ function normalizeSalaryClosure(rawClosure) {
     monthISO: ensureMonthISO(rawClosure.monthISO, getTodayISO().slice(0, 7)),
     closedAt: rawClosure.closedAt || new Date().toISOString(),
     snapshot: rawClosure.snapshot
+  };
+}
+
+function normalizeUser(rawUser) {
+  if (!rawUser) return null;
+
+  const id = String(rawUser.id || createId("user"));
+  const name = String(rawUser.name || "").trim();
+  const email = normalizeEmail(rawUser.email);
+  const passwordHash = String(rawUser.passwordHash || rawUser.password || "");
+
+  if (!name || !email || !passwordHash) return null;
+
+  return {
+    id,
+    name,
+    email,
+    passwordHash,
+    createdAt: rawUser.createdAt || new Date().toISOString()
+  };
+}
+
+function normalizeAuth(rawAuth, users) {
+  const currentUserId = String(rawAuth?.currentUserId || "");
+  if (!currentUserId) return { currentUserId: null };
+
+  const exists = users.some((user) => user.id === currentUserId);
+  return {
+    currentUserId: exists ? currentUserId : null
   };
 }
 
@@ -570,6 +646,89 @@ function sortSessionsByDateTime(sessions) {
 
 function isFinalPersonalStatus(status) {
   return status === "пришел" || status === "не пришел";
+}
+
+function normalizeEmail(emailValue) {
+  return String(emailValue || "").trim().toLowerCase();
+}
+
+function hashPassword(password) {
+  const source = String(password || "");
+  let hash = 2166136261;
+  for (let i = 0; i < source.length; i += 1) {
+    hash ^= source.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `h${(hash >>> 0).toString(16)}`;
+}
+
+function getCurrentUser() {
+  const userId = state?.auth?.currentUserId;
+  if (!userId) return null;
+  return state.users.find((user) => user.id === userId) || null;
+}
+
+function isAuthenticated() {
+  return Boolean(getCurrentUser());
+}
+
+function registerUser(payload) {
+  const name = String(payload?.name || "").trim();
+  const email = normalizeEmail(payload?.email);
+  const password = String(payload?.password || "");
+  const confirmPassword = String(payload?.confirmPassword || "");
+
+  if (!name) return { ok: false, message: "Введите имя." };
+  if (!email || !email.includes("@")) return { ok: false, message: "Введите корректный Email." };
+  if (password.length < 4) return { ok: false, message: "Пароль должен содержать минимум 4 символа." };
+  if (password !== confirmPassword) return { ok: false, message: "Пароли не совпадают." };
+
+  const alreadyExists = state.users.some((user) => user.email === email);
+  if (alreadyExists) return { ok: false, message: "Пользователь с таким Email уже зарегистрирован." };
+
+  const user = {
+    id: createId("user"),
+    name,
+    email,
+    passwordHash: hashPassword(password),
+    createdAt: new Date().toISOString()
+  };
+
+  state.users.push(user);
+  state.auth.currentUserId = user.id;
+  state.view = "home";
+  saveState();
+  renderApp();
+
+  return { ok: true };
+}
+
+function loginUser(payload) {
+  const email = normalizeEmail(payload?.email);
+  const password = String(payload?.password || "");
+
+  if (!email || !password) return { ok: false, message: "Введите Email и пароль." };
+
+  const user = state.users.find((item) => item.email === email);
+  if (!user) return { ok: false, message: "Пользователь не найден." };
+
+  if (user.passwordHash !== hashPassword(password)) {
+    return { ok: false, message: "Неверный пароль." };
+  }
+
+  state.auth.currentUserId = user.id;
+  state.view = "home";
+  saveState();
+  renderApp();
+  return { ok: true };
+}
+
+function logoutUser() {
+  state.auth.currentUserId = null;
+  state.view = "home";
+  state.editMode = false;
+  saveState();
+  renderApp();
 }
 
 function rebuildStudentPlannedSessions(student, startDateISO = getTodayISO()) {
