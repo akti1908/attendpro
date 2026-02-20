@@ -78,10 +78,8 @@ body {
 }
 
 .topbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
+  display: grid;
+  gap: 10px;
   margin-bottom: 16px;
 }
 
@@ -105,31 +103,41 @@ body.is-auth-required .nav-actions {
   display: none;
 }
 
-.topbar-right {
+.topbar-head {
   display: flex;
   align-items: center;
-  gap: 12px;
-  justify-content: flex-end;
+  justify-content: space-between;
+  gap: 10px;
 }
 
-.menu-toggle {
-  display: none;
+.topbar-brand {
+  color: var(--text);
+  transition: opacity 0.2s ease;
+}
+
+.topbar-head h1 {
+  margin: 0;
 }
 
 .topbar-menu {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
-  justify-content: flex-end;
 }
 
 .topbar-meta {
   display: inline-flex;
   align-items: center;
   gap: 12px;
+  margin-left: auto;
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+.menu-toggle {
+  display: none;
 }
 
 .theme-control {
@@ -643,34 +651,35 @@ input[type="radio"] {
     top: 0;
     z-index: 30;
     background: var(--bg);
-    padding: 8px 0;
-    flex-wrap: wrap;
+    padding: 8px 0 6px;
+    margin-bottom: 12px;
   }
 
-  .topbar-right {
+  .topbar-head {
     width: 100%;
-    display: grid;
-    grid-template-columns: 1fr auto;
-    align-items: center;
-    gap: 8px;
+    min-height: 44px;
   }
 
   .menu-toggle {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    min-width: 96px;
-    margin-left: auto;
+    min-width: 92px;
+    margin-left: 0;
   }
 
   .topbar-menu {
     display: none;
-    grid-column: 1 / -1;
     width: 100%;
     padding: 10px;
     border: 1px solid var(--border);
     border-radius: 12px;
     background: var(--surface);
+  }
+
+  .topbar-brand {
+    color: var(--muted);
+    opacity: 0.55;
   }
 
   body.menu-open .topbar-menu {
@@ -681,15 +690,16 @@ input[type="radio"] {
   .nav-actions {
     width: 100%;
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 8px;
   }
 
   .nav-actions .btn {
     width: 100%;
     min-height: 42px;
-    padding-inline: 8px;
-    font-size: 0.9rem;
+    padding-inline: 6px;
+    font-size: 0.86rem;
+    line-height: 1.2;
     white-space: normal;
   }
 
@@ -851,10 +861,6 @@ input[type="radio"] {
 }
 
 @media (max-width: 520px) {
-  .nav-actions {
-    grid-template-columns: 1fr;
-  }
-
   .stats-grid {
     grid-template-columns: 1fr;
   }

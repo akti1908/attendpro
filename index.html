@@ -18,34 +18,35 @@
 <body>
   <div class="app-shell">
     <header class="topbar">
-      <h1>AttendPro</h1>
-      <div class="topbar-right">
+      <div class="topbar-head">
+        <h1 class="topbar-brand">AttendPro</h1>
         <button id="menu-toggle" class="btn small-btn menu-toggle" type="button" aria-expanded="false" aria-controls="topbar-menu">
           Меню
         </button>
-        <div id="topbar-menu" class="topbar-menu">
-          <nav class="nav-actions">
-            <button id="go-today" class="btn btn-primary">Журнал</button>
-            <button id="go-students" class="btn">Карточки</button>
-            <button id="go-groups" class="btn">Группы</button>
-            <button id="go-calendar" class="btn">Календарь</button>
-            <button id="go-stats" class="btn">Статистика</button>
-            <button id="go-salary" class="btn">ЗП</button>
-          </nav>
-          <div class="topbar-meta">
-            <label class="theme-control" for="theme-select">
-              Тема
-              <select id="theme-select" class="theme-select">
-                <option value="dark">Темная</option>
-                <option value="light">Светлая</option>
-                <option value="ocean">Океан</option>
-                <option value="sunset">Закат</option>
-              </select>
-            </label>
-            <div class="topbar-auth">
-              <span id="current-user" class="muted"></span>
-              <button id="logout-btn" class="btn small-btn is-hidden">Выйти</button>
-            </div>
+      </div>
+
+      <div id="topbar-menu" class="topbar-menu">
+        <nav class="nav-actions">
+          <button id="go-today" class="btn btn-primary">Журнал</button>
+          <button id="go-students" class="btn">Карточки</button>
+          <button id="go-groups" class="btn">Группы</button>
+          <button id="go-calendar" class="btn">Календарь</button>
+          <button id="go-stats" class="btn">Статистика</button>
+          <button id="go-salary" class="btn">ЗП</button>
+        </nav>
+        <div class="topbar-meta">
+          <label class="theme-control" for="theme-select">
+            Тема
+            <select id="theme-select" class="theme-select">
+              <option value="dark">Темная</option>
+              <option value="light">Светлая</option>
+              <option value="ocean">Океан</option>
+              <option value="sunset">Закат</option>
+            </select>
+          </label>
+          <div class="topbar-auth">
+            <span id="current-user" class="muted"></span>
+            <button id="logout-btn" class="btn small-btn is-hidden">Выйти</button>
           </div>
         </div>
       </div>
