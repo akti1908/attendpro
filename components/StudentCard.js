@@ -43,6 +43,7 @@ export function renderStudentCard(student, ctx) {
 
       <div class="session-actions">
         <button class="btn small-btn" data-action="update-days" data-student-id="${student.id}">Обновить дни</button>
+        <button class="btn small-btn" data-action="delete-student" data-student-id="${student.id}">Удалить карточку</button>
       </div>
 
       <div class="history-list">
@@ -151,6 +152,14 @@ export function renderStudentsManager(root, ctx) {
       }
 
       ctx.actions.updateStudentSchedule(button.dataset.studentId, selectedDays);
+    });
+  });
+
+  studentsList.querySelectorAll("[data-action='delete-student']").forEach((button) => {
+    button.addEventListener("click", () => {
+      const isConfirmed = window.confirm("Удалить карточку? Это действие нельзя отменить.");
+      if (!isConfirmed) return;
+      ctx.actions.deleteStudentCard(button.dataset.studentId);
     });
   });
 }

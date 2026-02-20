@@ -8,8 +8,28 @@ import { renderSalary } from "./components/Salary.js";
 import { renderAuth } from "./components/Auth.js";
 
 const STORAGE_KEY = "attendpro_state_v4";
-const APP_VERSION = 4;
+const APP_VERSION = 5;
 const ALLOWED_THEMES = ["dark", "light", "ocean", "sunset"];
+const CLOUD_SYNC_DEBOUNCE_MS = 1200;
+const LEGACY_TEXT_MAP = {
+  "РџРЅ": "Пн",
+  "Р’С‚": "Вт",
+  "РЎСЂ": "Ср",
+  "Р§С‚": "Чт",
+  "РџС‚": "Пт",
+  "РЎР±": "Сб",
+  "Р’СЃ": "Вс",
+  "Р“РѕСЃС‚СЊ": "Гость",
+  "Р“СЂСѓРїРїР°": "Группа",
+  "РЈС‡РµРЅРёРє": "Ученик",
+  "РЈС‡Р°СЃС‚РЅРёРє 1": "Участник 1",
+  "РЈС‡Р°СЃС‚РЅРёРє 2": "Участник 2",
+  "РїСЂРёС€РµР»": "пришел",
+  "РЅРµ РїСЂРёС€РµР»": "не пришел",
+  "Р·Р°РїР»Р°РЅРёСЂРѕРІР°РЅРѕ": "запланировано",
+  "РїСЂРёСЃСѓС‚СЃС‚РІРѕРІР°Р»": "присутствовал",
+  "РѕС‚СЃСѓС‚СЃС‚РІРѕРІР°Р»": "отсутствовал"
+};
 
 const PERSONAL_PACKAGE_OPTIONS = [
   { count: 1, totalPrice: 1500 },
@@ -45,6 +65,9 @@ const weekDays = [
 void renderSession;
 
 let state = loadState();
+let cloudSyncTimer = null;
+let cloudSyncInFlight = false;
+let cloudSyncQueued = false;
 
 const root = document.getElementById("app");
 bindTopNavigation();
@@ -52,6 +75,7 @@ bindThemeControl();
 bindLogoutButton();
 applyTheme(state.theme);
 renderApp();
+void bootstrapCloudSync();
 
 function bindTopNavigation() {
   const navMap = {
@@ -110,7 +134,7 @@ function refreshTopbarAuthState() {
   }
 
   if (currentUserNode) {
-    currentUserNode.textContent = isLoggedIn && currentUser ? currentUser.name : "Гость";
+    currentUserNode.textContent = isLoggedIn && currentUser ? normalizeLegacyText(currentUser.name) : "Гость";
   }
 }
 
@@ -137,6 +161,228 @@ function normalizeTheme(themeName) {
   const value = String(themeName || "").toLowerCase();
   if (ALLOWED_THEMES.includes(value)) return value;
   return "dark";
+}
+
+function normalizeLegacyText(value) {
+  if (typeof value !== "string") return value;
+  return LEGACY_TEXT_MAP[value] || value;
+}
+
+function getCloudConfig() {
+  const raw = window.ATTENDPRO_CLOUD || {};
+  const url = String(raw.url || "").trim().replace(/\/+$/, "");
+  const anonKey = String(raw.anonKey || "").trim();
+  const table = String(raw.table || "attendpro_accounts").trim();
+  return { url, anonKey, table };
+}
+
+function isCloudConfigured() {
+  const cfg = getCloudConfig();
+  return Boolean(cfg.url && cfg.anonKey && cfg.table);
+}
+
+function cloudHeaders(extra = {}) {
+  const cfg = getCloudConfig();
+  return {
+    apikey: cfg.anonKey,
+    Authorization: `Bearer ${cfg.anonKey}`,
+    "Content-Type": "application/json",
+    ...extra
+  };
+}
+
+function cloudEndpoint(path) {
+  const cfg = getCloudConfig();
+  return `${cfg.url}${path}`;
+}
+
+async function cloudFetch(path, options = {}) {
+  if (!isCloudConfigured()) {
+    throw new Error("Cloud sync is not configured.");
+  }
+
+  const response = await fetch(cloudEndpoint(path), {
+    ...options,
+    headers: cloudHeaders(options.headers || {})
+  });
+
+  if (!response.ok) {
+    const details = await response.text().catch(() => "");
+    throw new Error(`Cloud request failed (${response.status}): ${details}`);
+  }
+
+  const text = await response.text();
+  if (!text) return null;
+  return JSON.parse(text);
+}
+
+async function cloudGetAccountByEmail(email) {
+  const cfg = getCloudConfig();
+  const encodedEmail = encodeURIComponent(email);
+  const path = `/rest/v1/${cfg.table}?select=id,email,name,password_hash,app_state,updated_at&email=eq.${encodedEmail}&limit=1`;
+  const rows = await cloudFetch(path, { method: "GET" });
+  return Array.isArray(rows) && rows.length ? rows[0] : null;
+}
+
+async function cloudCreateAccount(account) {
+  const cfg = getCloudConfig();
+  const path = `/rest/v1/${cfg.table}`;
+  const payload = {
+    email: account.email,
+    name: account.name,
+    password_hash: account.passwordHash,
+    app_state: account.appState,
+    updated_at: new Date().toISOString()
+  };
+
+  const rows = await cloudFetch(path, {
+    method: "POST",
+    headers: {
+      Prefer: "return=representation"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  return Array.isArray(rows) && rows.length ? rows[0] : rows;
+}
+
+async function cloudUpdateStateByAccount(user, appStatePayload) {
+  const cfg = getCloudConfig();
+  const encodedEmail = encodeURIComponent(user.email);
+  const encodedHash = encodeURIComponent(user.passwordHash);
+  const path = `/rest/v1/${cfg.table}?email=eq.${encodedEmail}&password_hash=eq.${encodedHash}`;
+  const payload = {
+    name: user.name,
+    app_state: appStatePayload,
+    updated_at: new Date().toISOString()
+  };
+
+  const patchedRows = await cloudFetch(path, {
+    method: "PATCH",
+    headers: {
+      Prefer: "return=representation"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  if (Array.isArray(patchedRows) && patchedRows.length > 0) return true;
+
+  const existingByEmail = await cloudGetAccountByEmail(user.email);
+  if (existingByEmail && existingByEmail.password_hash !== user.passwordHash) {
+    throw new Error("Cloud account exists with different password hash.");
+  }
+
+  await cloudCreateAccount({
+    email: user.email,
+    name: user.name,
+    passwordHash: user.passwordHash,
+    appState: appStatePayload
+  });
+  return true;
+}
+
+function buildCloudStatePayload() {
+  const ownerId = getCurrentUserId();
+  return {
+    selectedDate: state.selectedDate,
+    calendarDate: state.calendarDate,
+    salaryMonth: state.salaryMonth,
+    editMode: false,
+    students: getStudentsForUser(ownerId),
+    groups: getGroupsForUser(ownerId),
+    salaryClosures: getSalaryClosuresForUser(ownerId)
+  };
+}
+
+function applyCloudStatePayload(payload, user) {
+  if (!payload || typeof payload !== "object") return false;
+  const ownerId = user?.id || getCurrentUserId();
+  if (!ownerId) return false;
+
+  const next = normalizeState({
+    ...state,
+    selectedDate: payload.selectedDate ?? state.selectedDate,
+    calendarDate: payload.calendarDate ?? state.calendarDate,
+    salaryMonth: payload.salaryMonth ?? state.salaryMonth,
+    editMode: false,
+    students: mergeOwnedRows(
+      state.students,
+      Array.isArray(payload.students) ? payload.students : getStudentsForUser(ownerId),
+      ownerId
+    ),
+    groups: mergeOwnedRows(
+      state.groups,
+      Array.isArray(payload.groups) ? payload.groups : getGroupsForUser(ownerId),
+      ownerId
+    ),
+    salaryClosures: mergeOwnedRows(
+      state.salaryClosures,
+      Array.isArray(payload.salaryClosures) ? payload.salaryClosures : getSalaryClosuresForUser(ownerId),
+      ownerId
+    ),
+    users: state.users,
+    auth: state.auth
+  });
+
+  state = next;
+  return true;
+}
+
+function scheduleCloudSync() {
+  if (!isAuthenticated() || !isCloudConfigured()) return;
+
+  cloudSyncQueued = true;
+  if (cloudSyncTimer) clearTimeout(cloudSyncTimer);
+  cloudSyncTimer = setTimeout(() => {
+    void pushStateToCloud();
+  }, CLOUD_SYNC_DEBOUNCE_MS);
+}
+
+async function pushStateToCloud() {
+  if (!isAuthenticated() || !isCloudConfigured()) return false;
+  if (cloudSyncInFlight) return false;
+
+  const user = getCurrentUser();
+  if (!user) return false;
+
+  cloudSyncInFlight = true;
+  cloudSyncQueued = false;
+  try {
+    await cloudUpdateStateByAccount(user, buildCloudStatePayload());
+    return true;
+  } catch (error) {
+    console.error("Cloud sync error:", error);
+    return false;
+  } finally {
+    cloudSyncInFlight = false;
+    if (cloudSyncQueued) scheduleCloudSync();
+  }
+}
+
+async function pullStateFromCloudForUser(user) {
+  if (!isCloudConfigured() || !user?.email) return false;
+
+  try {
+    const account = await cloudGetAccountByEmail(user.email);
+    if (!account) return false;
+    if (account.password_hash !== user.passwordHash) return false;
+    const changed = applyCloudStatePayload(account.app_state, user);
+    if (changed) {
+      saveState({ skipCloud: true });
+      renderApp();
+    }
+    return changed;
+  } catch (error) {
+    console.error("Cloud pull error:", error);
+    return false;
+  }
+}
+
+async function bootstrapCloudSync() {
+  if (!isAuthenticated() || !isCloudConfigured()) return;
+  const currentUser = getCurrentUser();
+  if (!currentUser) return;
+  await pullStateFromCloudForUser(currentUser);
 }
 
 function renderApp() {
@@ -190,9 +436,22 @@ function markActiveNavButton() {
   if (activeButton) activeButton.classList.add("btn-active");
 }
 
-function buildContext() {
+function buildScopedStateForContext() {
+  if (!isAuthenticated()) return state;
+
+  const ownerId = getCurrentUserId();
   return {
-    state,
+    ...state,
+    students: getStudentsForUser(ownerId),
+    groups: getGroupsForUser(ownerId),
+    salaryClosures: getSalaryClosuresForUser(ownerId)
+  };
+}
+
+function buildContext() {
+  const scopedState = buildScopedStateForContext();
+  return {
+    state: scopedState,
     currentUser: getCurrentUser(),
     weekDays,
     packageOptions,
@@ -214,7 +473,9 @@ function buildContext() {
       addStudent,
       addStudentPackage,
       updateStudentSchedule,
+      deleteStudentCard,
       addGroup,
+      deleteGroupCard,
       markPersonalSession,
       forceSetPersonalStatus,
       reschedulePersonalSession,
@@ -266,8 +527,10 @@ function loadState() {
   }
 }
 
-function saveState() {
+function saveState(options = {}) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  if (options.skipCloud) return;
+  scheduleCloudSync();
 }
 
 function normalizeState(input) {
@@ -285,11 +548,16 @@ function normalizeState(input) {
   next.users = Array.isArray(next.users) ? next.users.map(normalizeUser).filter(Boolean) : [];
   next.auth = normalizeAuth(next.auth, next.users);
   next.editMode = Boolean(next.editMode);
-  next.students = Array.isArray(next.students) ? next.students.map(normalizeStudent) : [];
-  next.groups = Array.isArray(next.groups) ? next.groups.map(normalizeGroup) : [];
+  const fallbackOwnerId = getMigrationFallbackOwnerId(next.users);
+  next.students = Array.isArray(next.students)
+    ? next.students.map((student) => normalizeStudent(student, fallbackOwnerId)).filter(Boolean)
+    : [];
+  next.groups = Array.isArray(next.groups)
+    ? next.groups.map((group) => normalizeGroup(group, fallbackOwnerId)).filter(Boolean)
+    : [];
   next.salaryClosures = Array.isArray(next.salaryClosures)
     ? next.salaryClosures
-      .map(normalizeSalaryClosure)
+      .map((closure) => normalizeSalaryClosure(closure, fallbackOwnerId))
       .filter(Boolean)
     : [];
 
@@ -305,19 +573,31 @@ function normalizeState(input) {
   return next;
 }
 
+function getMigrationFallbackOwnerId(users) {
+  if (!Array.isArray(users) || !users.length) return null;
+  return users[0]?.id || null;
+}
+
 function isAllowedView(value) {
   return ["home", "students", "groups", "calendar", "stats", "salary"].includes(value);
 }
 
-function normalizeStudent(rawStudent) {
+function normalizeOwnerId(ownerId, fallbackOwnerId = null) {
+  const value = String(ownerId || fallbackOwnerId || "").trim();
+  return value || null;
+}
+
+function normalizeStudent(rawStudent, fallbackOwnerId = null) {
   const trainingType = rawStudent.trainingType === "split" ? "split" : "personal";
   const participants = normalizeParticipants(rawStudent, trainingType);
   const packageCount = normalizePackageCount(rawStudent.totalTrainings);
   const activePackage = normalizeActivePackage(rawStudent.activePackage, trainingType, packageCount);
+  const ownerId = normalizeOwnerId(rawStudent.ownerId, fallbackOwnerId);
 
   const student = {
     id: String(rawStudent.id || createId("student")),
-    name: String(rawStudent.name || participants.join(" / ")).trim(),
+    ownerId,
+    name: String(normalizeLegacyText(rawStudent.name || participants.join(" / "))).trim(),
     trainingType,
     participants,
     scheduleDays: sanitizeWeekDays(rawStudent.scheduleDays),
@@ -333,16 +613,18 @@ function normalizeStudent(rawStudent) {
   return student;
 }
 
-function normalizeGroup(rawGroup) {
+function normalizeGroup(rawGroup, fallbackOwnerId = null) {
+  const ownerId = normalizeOwnerId(rawGroup.ownerId, fallbackOwnerId);
   return {
     id: String(rawGroup.id || createId("group")),
-    name: String(rawGroup.name || "Группа").trim(),
+    ownerId,
+    name: String(normalizeLegacyText(rawGroup.name || "Группа")).trim(),
     scheduleDays: sanitizeWeekDays(rawGroup.scheduleDays),
     time: sanitizeHourTime(rawGroup.time),
     students: Array.isArray(rawGroup.students)
       ? rawGroup.students.map((item) => ({
         id: String(item.id || createId("member")),
-        name: String(item.name || "").trim()
+        name: String(normalizeLegacyText(item.name || "")).trim()
       })).filter((item) => item.name)
       : [],
     sessions: Array.isArray(rawGroup.sessions) ? rawGroup.sessions.map(normalizeGroupSession) : [],
@@ -350,9 +632,10 @@ function normalizeGroup(rawGroup) {
   };
 }
 
-function normalizeSalaryClosure(rawClosure) {
+function normalizeSalaryClosure(rawClosure, fallbackOwnerId = null) {
   if (!rawClosure || !rawClosure.monthISO || !rawClosure.snapshot) return null;
   return {
+    ownerId: normalizeOwnerId(rawClosure.ownerId, fallbackOwnerId),
     monthISO: ensureMonthISO(rawClosure.monthISO, getTodayISO().slice(0, 7)),
     closedAt: rawClosure.closedAt || new Date().toISOString(),
     snapshot: rawClosure.snapshot
@@ -363,7 +646,7 @@ function normalizeUser(rawUser) {
   if (!rawUser) return null;
 
   const id = String(rawUser.id || createId("user"));
-  const name = String(rawUser.name || "").trim();
+  const name = String(normalizeLegacyText(rawUser.name || "")).trim();
   const email = normalizeEmail(rawUser.email);
   const passwordHash = String(rawUser.passwordHash || rawUser.password || "");
 
@@ -414,28 +697,32 @@ function normalizeAttendanceMap(attendance) {
 
   const map = {};
   Object.entries(attendance).forEach(([studentId, status]) => {
-    if (status === "присутствовал" || status === "отсутствовал") {
-      map[String(studentId)] = status;
+    const normalizedStatus = normalizeLegacyText(status);
+    if (normalizedStatus === "присутствовал" || normalizedStatus === "отсутствовал") {
+      map[String(studentId)] = normalizedStatus;
     }
   });
   return map;
 }
 
 function normalizePersonalStatus(status) {
-  if (status === "пришел" || status === "не пришел" || status === "запланировано") {
-    return status;
+  const normalizedStatus = normalizeLegacyText(status);
+  if (normalizedStatus === "пришел" || normalizedStatus === "не пришел" || normalizedStatus === "запланировано") {
+    return normalizedStatus;
   }
   return "запланировано";
 }
 
 function normalizeParticipants(rawStudent, trainingType) {
   if (Array.isArray(rawStudent.participants) && rawStudent.participants.length) {
-    const cleaned = rawStudent.participants.map((item) => String(item || "").trim()).filter(Boolean);
+    const cleaned = rawStudent.participants
+      .map((item) => String(normalizeLegacyText(item || "")).trim())
+      .filter(Boolean);
     if (trainingType === "split") return cleaned.slice(0, 2);
-    return [cleaned[0] || String(rawStudent.name || "Ученик").trim()];
+    return [cleaned[0] || String(normalizeLegacyText(rawStudent.name || "Ученик")).trim()];
   }
 
-  const studentName = String(rawStudent.name || "Ученик").trim();
+  const studentName = String(normalizeLegacyText(rawStudent.name || "Ученик")).trim();
   if (trainingType === "split") {
     const [first, second] = studentName.split("/").map((item) => item.trim()).filter(Boolean);
     return [first || "Участник 1", second || "Участник 2"];
@@ -668,11 +955,78 @@ function getCurrentUser() {
   return state.users.find((user) => user.id === userId) || null;
 }
 
+function getCurrentUserId() {
+  return getCurrentUser()?.id || null;
+}
+
 function isAuthenticated() {
   return Boolean(getCurrentUser());
 }
 
-function registerUser(payload) {
+function getStudentsForUser(userId = getCurrentUserId()) {
+  if (!userId) return [];
+  return state.students.filter((student) => student.ownerId === userId);
+}
+
+function getGroupsForUser(userId = getCurrentUserId()) {
+  if (!userId) return [];
+  return state.groups.filter((group) => group.ownerId === userId);
+}
+
+function getSalaryClosuresForUser(userId = getCurrentUserId()) {
+  if (!userId) return [];
+  return state.salaryClosures.filter((closure) => closure.ownerId === userId);
+}
+
+function mergeOwnedRows(allRows, ownedRows, ownerId) {
+  const foreignRows = (Array.isArray(allRows) ? allRows : []).filter((item) => item?.ownerId !== ownerId);
+  const currentRows = (Array.isArray(ownedRows) ? ownedRows : [])
+    .filter((item) => item && typeof item === "object")
+    .map((item) => ({
+      ...item,
+      ownerId
+    }));
+  return [...foreignRows, ...currentRows];
+}
+
+function buildEmptyAccountData() {
+  const todayISO = getTodayISO();
+  return {
+    selectedDate: todayISO,
+    calendarDate: monthStartISO(todayISO),
+    salaryMonth: todayISO.slice(0, 7),
+    editMode: false,
+    students: [],
+    groups: [],
+    salaryClosures: []
+  };
+}
+
+function claimLegacyOrphanDataForUser(userId) {
+  if (!userId) return;
+
+  const hasOwnedRows = state.students.some((row) => row.ownerId)
+    || state.groups.some((row) => row.ownerId)
+    || state.salaryClosures.some((row) => row.ownerId);
+
+  if (hasOwnedRows) return;
+
+  state.students = state.students.map((row) => ({ ...row, ownerId: userId }));
+  state.groups = state.groups.map((row) => ({ ...row, ownerId: userId }));
+  state.salaryClosures = state.salaryClosures.map((row) => ({ ...row, ownerId: userId }));
+}
+
+function pickOwnedRowsFromImport(rows, ownerId) {
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .filter((row) => row && typeof row === "object" && (!row.ownerId || row.ownerId === ownerId))
+    .map((row) => ({
+      ...row,
+      ownerId
+    }));
+}
+
+async function registerUser(payload) {
   const name = String(payload?.name || "").trim();
   const email = normalizeEmail(payload?.email);
   const password = String(payload?.password || "");
@@ -694,33 +1048,97 @@ function registerUser(payload) {
     createdAt: new Date().toISOString()
   };
 
+  if (isCloudConfigured()) {
+    try {
+      const remoteExisting = await cloudGetAccountByEmail(email);
+      if (remoteExisting) {
+        return { ok: false, message: "Аккаунт с таким Email уже есть в облачной базе." };
+      }
+
+      await cloudCreateAccount({
+        email: user.email,
+        name: user.name,
+        passwordHash: user.passwordHash,
+        appState: buildEmptyAccountData()
+      });
+    } catch (error) {
+      console.error("Cloud register error:", error);
+      return { ok: false, message: "Не удалось зарегистрировать аккаунт в облаке." };
+    }
+  }
+
   state.users.push(user);
   state.auth.currentUserId = user.id;
+  claimLegacyOrphanDataForUser(user.id);
   state.view = "home";
   saveState();
+  await pushStateToCloud();
   renderApp();
 
   return { ok: true };
 }
 
-function loginUser(payload) {
+async function loginUser(payload) {
   const email = normalizeEmail(payload?.email);
   const password = String(payload?.password || "");
+  const passwordHash = hashPassword(password);
 
   if (!email || !password) return { ok: false, message: "Введите Email и пароль." };
 
-  const user = state.users.find((item) => item.email === email);
-  if (!user) return { ok: false, message: "Пользователь не найден." };
-
-  if (user.passwordHash !== hashPassword(password)) {
-    return { ok: false, message: "Неверный пароль." };
+  const localUser = state.users.find((item) => item.email === email);
+  if (localUser && localUser.passwordHash === passwordHash) {
+    state.auth.currentUserId = localUser.id;
+    claimLegacyOrphanDataForUser(localUser.id);
+    state.view = "home";
+    saveState({ skipCloud: true });
+    if (isCloudConfigured()) {
+      await pullStateFromCloudForUser(localUser);
+    }
+    renderApp();
+    return { ok: true };
   }
 
-  state.auth.currentUserId = user.id;
-  state.view = "home";
-  saveState();
-  renderApp();
-  return { ok: true };
+  if (isCloudConfigured()) {
+    try {
+      const remoteAccount = await cloudGetAccountByEmail(email);
+      if (!remoteAccount) return { ok: false, message: "Пользователь не найден." };
+      if (remoteAccount.password_hash !== passwordHash) {
+        return { ok: false, message: "Неверный пароль." };
+      }
+
+      let user = state.users.find((item) => item.email === email);
+      if (!user) {
+        user = {
+          id: createId("user"),
+          name: String(remoteAccount.name || email).trim(),
+          email,
+          passwordHash,
+          createdAt: new Date().toISOString()
+        };
+        state.users.push(user);
+      } else {
+        user.name = String(remoteAccount.name || user.name || email).trim();
+        user.passwordHash = passwordHash;
+      }
+
+      state.auth.currentUserId = user.id;
+      claimLegacyOrphanDataForUser(user.id);
+      state.view = "home";
+      if (remoteAccount.app_state) {
+        applyCloudStatePayload(remoteAccount.app_state, user);
+      }
+
+      saveState({ skipCloud: true });
+      renderApp();
+      return { ok: true };
+    } catch (error) {
+      console.error("Cloud login error:", error);
+      return { ok: false, message: "Ошибка подключения к облачной базе." };
+    }
+  }
+
+  if (localUser) return { ok: false, message: "Неверный пароль." };
+  return { ok: false, message: "Пользователь не найден." };
 }
 
 function logoutUser() {
@@ -842,10 +1260,15 @@ function openDateJournalFromCalendar(dateISO) {
 }
 
 function isDateLocked(dateISO) {
-  return state.salaryClosures.some((closure) => closure.monthISO === monthOfDate(dateISO));
+  const ownerId = getCurrentUserId();
+  if (!ownerId) return false;
+  return state.salaryClosures.some((closure) => closure.ownerId === ownerId && closure.monthISO === monthOfDate(dateISO));
 }
 
 function addStudent(payload) {
+  const ownerId = getCurrentUserId();
+  if (!ownerId) return;
+
   const trainingType = payload.trainingType === "split" ? "split" : "personal";
   const primaryName = String(payload.primaryName || "").trim();
   const secondaryName = String(payload.secondaryName || "").trim();
@@ -872,6 +1295,7 @@ function addStudent(payload) {
   const participants = trainingType === "split" ? [primaryName, secondaryName] : [primaryName];
   const student = {
     id: createId("student"),
+    ownerId,
     name: trainingType === "split" ? `${primaryName} / ${secondaryName}` : primaryName,
     trainingType,
     participants,
@@ -892,7 +1316,8 @@ function addStudent(payload) {
 }
 
 function addStudentPackage(studentId, packageCount) {
-  const student = state.students.find((item) => item.id === studentId);
+  const ownerId = getCurrentUserId();
+  const student = state.students.find((item) => item.id === studentId && item.ownerId === ownerId);
   if (!student) return;
 
   const newPackage = buildPackage(student.trainingType, Number(packageCount));
@@ -913,7 +1338,8 @@ function addStudentPackage(studentId, packageCount) {
 }
 
 function updateStudentSchedule(studentId, scheduleDays) {
-  const student = state.students.find((item) => item.id === studentId);
+  const ownerId = getCurrentUserId();
+  const student = state.students.find((item) => item.id === studentId && item.ownerId === ownerId);
   if (!student) return;
 
   student.scheduleDays = sanitizeWeekDays(scheduleDays);
@@ -923,7 +1349,22 @@ function updateStudentSchedule(studentId, scheduleDays) {
   renderApp();
 }
 
+function deleteStudentCard(studentId) {
+  const ownerId = getCurrentUserId();
+  if (!ownerId) return;
+
+  const beforeCount = state.students.length;
+  state.students = state.students.filter((item) => !(item.id === studentId && item.ownerId === ownerId));
+  if (state.students.length === beforeCount) return;
+
+  saveState();
+  renderApp();
+}
+
 function addGroup(payload) {
+  const ownerId = getCurrentUserId();
+  if (!ownerId) return;
+
   const name = String(payload.name || "").trim();
   const scheduleDays = sanitizeWeekDays(payload.scheduleDays);
   const time = sanitizeHourTime(payload.time);
@@ -949,6 +1390,7 @@ function addGroup(payload) {
 
   const group = {
     id: createId("group"),
+    ownerId,
     name,
     scheduleDays,
     time,
@@ -963,10 +1405,23 @@ function addGroup(payload) {
   renderApp();
 }
 
+function deleteGroupCard(groupId) {
+  const ownerId = getCurrentUserId();
+  if (!ownerId) return;
+
+  const beforeCount = state.groups.length;
+  state.groups = state.groups.filter((item) => !(item.id === groupId && item.ownerId === ownerId));
+  if (state.groups.length === beforeCount) return;
+
+  saveState();
+  renderApp();
+}
+
 function markPersonalSession(studentId, sessionId, nextStatus) {
+  const ownerId = getCurrentUserId();
   if (nextStatus !== "пришел" && nextStatus !== "не пришел") return;
 
-  const student = state.students.find((item) => item.id === studentId);
+  const student = state.students.find((item) => item.id === studentId && item.ownerId === ownerId);
   if (!student) return;
 
   const session = student.sessions.find((item) => item.id === sessionId);
@@ -984,9 +1439,10 @@ function markPersonalSession(studentId, sessionId, nextStatus) {
 }
 
 function forceSetPersonalStatus(studentId, sessionId, nextStatus) {
+  const ownerId = getCurrentUserId();
   if (nextStatus !== "пришел" && nextStatus !== "не пришел") return;
 
-  const student = state.students.find((item) => item.id === studentId);
+  const student = state.students.find((item) => item.id === studentId && item.ownerId === ownerId);
   if (!student) return;
 
   const session = student.sessions.find((item) => item.id === sessionId);
@@ -1011,7 +1467,8 @@ function forceSetPersonalStatus(studentId, sessionId, nextStatus) {
 }
 
 function reschedulePersonalSession(studentId, sessionId) {
-  const student = state.students.find((item) => item.id === studentId);
+  const ownerId = getCurrentUserId();
+  const student = state.students.find((item) => item.id === studentId && item.ownerId === ownerId);
   if (!student) return;
 
   const session = student.sessions.find((item) => item.id === sessionId);
@@ -1052,7 +1509,8 @@ function getNextAvailableDateForStudent(student, currentDateISO, sessionId) {
 function setGroupAttendance(groupId, sessionId, studentId, status) {
   if (status !== "присутствовал" && status !== "отсутствовал") return;
 
-  const group = state.groups.find((item) => item.id === groupId);
+  const ownerId = getCurrentUserId();
+  const group = state.groups.find((item) => item.id === groupId && item.ownerId === ownerId);
   if (!group) return;
 
   const session = group.sessions.find((item) => item.id === sessionId);
@@ -1075,12 +1533,16 @@ function setSalaryMonth(monthISO) {
 }
 
 function closeSalaryMonth(monthISO) {
+  const ownerId = getCurrentUserId();
+  if (!ownerId) return;
+
   const targetMonth = ensureMonthISO(monthISO, state.salaryMonth);
-  const existing = state.salaryClosures.find((closure) => closure.monthISO === targetMonth);
+  const existing = state.salaryClosures.find((closure) => closure.ownerId === ownerId && closure.monthISO === targetMonth);
   if (existing) return;
 
   const snapshot = buildSalaryReport(targetMonth);
   state.salaryClosures.push({
+    ownerId,
     monthISO: targetMonth,
     closedAt: new Date().toISOString(),
     snapshot
@@ -1091,8 +1553,14 @@ function closeSalaryMonth(monthISO) {
 }
 
 function reopenSalaryMonth(monthISO) {
+  const ownerId = getCurrentUserId();
+  if (!ownerId) return;
+
   const targetMonth = ensureMonthISO(monthISO, state.salaryMonth);
-  state.salaryClosures = state.salaryClosures.filter((closure) => closure.monthISO !== targetMonth);
+  state.salaryClosures = state.salaryClosures.filter((closure) => {
+    if (closure.ownerId !== ownerId) return true;
+    return closure.monthISO !== targetMonth;
+  });
   saveState();
   renderApp();
 }
@@ -1120,8 +1588,10 @@ function exportSalaryMonthCSV(monthISO) {
 
 function getSessionsForDate(dateISO) {
   const rows = [];
+  const students = getStudentsForUser();
+  const groups = getGroupsForUser();
 
-  state.students.forEach((student) => {
+  students.forEach((student) => {
     student.sessions.forEach((session) => {
       if (session.date !== dateISO) return;
       rows.push({
@@ -1134,7 +1604,7 @@ function getSessionsForDate(dateISO) {
     });
   });
 
-  state.groups.forEach((group) => {
+  groups.forEach((group) => {
     group.sessions.forEach((session) => {
       if (session.date !== dateISO) return;
       rows.push({
@@ -1177,6 +1647,7 @@ function buildSalaryReport(monthISO) {
   const month = ensureMonthISO(monthISO, getTodayISO().slice(0, 7));
   const startDateISO = monthStartISO(month);
   const endDateISO = monthEndISO(month);
+  const students = getStudentsForUser();
 
   const rows = [];
   let personalSessions = 0;
@@ -1184,7 +1655,7 @@ function buildSalaryReport(monthISO) {
   let personalIncome = 0;
   let splitIncome = 0;
 
-  state.students.forEach((student) => {
+  students.forEach((student) => {
     const attendedSessions = student.sessions.filter((session) => {
       return session.status === "пришел" && isDateInMonth(session.date, month);
     });
@@ -1236,7 +1707,8 @@ function buildSalaryReport(monthISO) {
 
 function getSalaryReport(monthISO) {
   const month = ensureMonthISO(monthISO, state.salaryMonth);
-  const closure = state.salaryClosures.find((item) => item.monthISO === month);
+  const ownerId = getCurrentUserId();
+  const closure = state.salaryClosures.find((item) => item.ownerId === ownerId && item.monthISO === month);
 
   if (closure) {
     return {
@@ -1255,6 +1727,8 @@ function getSalaryReport(monthISO) {
 
 function getStatistics() {
   const cards = [];
+  const students = getStudentsForUser();
+  const groups = getGroupsForUser();
 
   let totalVisits = 0;
   let totalMisses = 0;
@@ -1264,7 +1738,7 @@ function getStatistics() {
   let totalIncome = 0;
   let paidSessionCount = 0;
 
-  state.students.forEach((student) => {
+  students.forEach((student) => {
     const visits = student.sessions.filter((session) => session.status === "пришел");
     const misses = student.sessions.filter((session) => session.status === "не пришел");
     const lastMarked = [...visits, ...misses].sort((a, b) => compareISODate(b.date, a.date))[0];
@@ -1296,7 +1770,7 @@ function getStatistics() {
     });
   });
 
-  state.groups.forEach((group) => {
+  groups.forEach((group) => {
     let visits = 0;
     let misses = 0;
     let lastDate = null;
@@ -1391,10 +1865,20 @@ function exportStatisticsCSV() {
 }
 
 function exportBackupJSON() {
+  const currentUser = getCurrentUser();
+  if (!currentUser) return;
+
   const payload = {
     exportedAt: new Date().toISOString(),
     appVersion: APP_VERSION,
-    state
+    state: {
+      ...state,
+      users: [currentUser],
+      auth: { currentUserId: currentUser.id },
+      students: getStudentsForUser(currentUser.id),
+      groups: getGroupsForUser(currentUser.id),
+      salaryClosures: getSalaryClosuresForUser(currentUser.id)
+    }
   };
 
   downloadFile(
@@ -1411,7 +1895,29 @@ function importBackupFromFile(file) {
     .then((text) => {
       const parsed = JSON.parse(text);
       const incomingState = parsed?.state ? parsed.state : parsed;
-      state = normalizeState(incomingState);
+      const normalizedIncoming = normalizeState(incomingState);
+      const ownerId = getCurrentUserId();
+
+      if (!ownerId) {
+        state = normalizedIncoming;
+      } else {
+        state = normalizeState({
+          ...state,
+          selectedDate: normalizedIncoming.selectedDate ?? state.selectedDate,
+          calendarDate: normalizedIncoming.calendarDate ?? state.calendarDate,
+          salaryMonth: normalizedIncoming.salaryMonth ?? state.salaryMonth,
+          editMode: false,
+          students: mergeOwnedRows(state.students, pickOwnedRowsFromImport(normalizedIncoming.students, ownerId), ownerId),
+          groups: mergeOwnedRows(state.groups, pickOwnedRowsFromImport(normalizedIncoming.groups, ownerId), ownerId),
+          salaryClosures: mergeOwnedRows(
+            state.salaryClosures,
+            pickOwnedRowsFromImport(normalizedIncoming.salaryClosures, ownerId),
+            ownerId
+          ),
+          users: state.users,
+          auth: state.auth
+        });
+      }
       saveState();
       renderApp();
       alert("Бэкап успешно восстановлен.");
@@ -1442,3 +1948,4 @@ function downloadFile(fileName, content, mimeType) {
 
   URL.revokeObjectURL(url);
 }
+

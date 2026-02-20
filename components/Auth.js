@@ -54,10 +54,10 @@ export function renderAuth(root, ctx) {
   loginTab.addEventListener("click", () => setMode("login"));
   registerTab.addEventListener("click", () => setMode("register"));
 
-  loginForm.addEventListener("submit", (event) => {
+  loginForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
-    const result = ctx.actions.loginUser({
+    const result = await ctx.actions.loginUser({
       email: formData.get("email"),
       password: formData.get("password")
     });
@@ -67,10 +67,10 @@ export function renderAuth(root, ctx) {
     message.classList.add("auth-error");
   });
 
-  registerForm.addEventListener("submit", (event) => {
+  registerForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
-    const result = ctx.actions.registerUser({
+    const result = await ctx.actions.registerUser({
       name: formData.get("name"),
       email: formData.get("email"),
       password: formData.get("password"),

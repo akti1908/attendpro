@@ -12,6 +12,9 @@ export function renderGroupCard(group, ctx) {
       <h3>${group.name}</h3>
       <p class="muted">Дни: ${group.scheduleDays.map((day) => ctx.dayLabel(day)).join(", ")} | Время: ${group.time}</p>
       <p class="muted">Ученики: ${group.students.map((student) => student.name).join(", ")}</p>
+      <div class="session-actions">
+        <button class="btn small-btn" data-action="delete-group" data-group-id="${group.id}">Удалить группу</button>
+      </div>
       <ul>${upcomingSessions || "<li class='muted'>Ближайших тренировок нет.</li>"}</ul>
     </article>
   `;
@@ -74,6 +77,14 @@ export function renderGroupsManager(root, ctx) {
   groupsList.innerHTML = ctx.state.groups.length
     ? ctx.state.groups.map((group) => renderGroupCard(group, ctx)).join("")
     : `<p class="muted">Групп пока нет.</p>`;
+
+  groupsList.querySelectorAll("[data-action='delete-group']").forEach((button) => {
+    button.addEventListener("click", () => {
+      const isConfirmed = window.confirm("Удалить группу? Это действие нельзя отменить.");
+      if (!isConfirmed) return;
+      ctx.actions.deleteGroupCard(button.dataset.groupId);
+    });
+  });
 }
 
 function renderDayCheckboxes(weekDays, selected = []) {
