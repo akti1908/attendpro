@@ -1,4 +1,4 @@
-import { renderHome } from "./components/Home.js";
+﻿import { renderHome } from "./components/Home.js";
 import { renderCalendar } from "./components/Calendar.js";
 import { renderStudentsManager } from "./components/StudentCard.js";
 import { renderGroupsManager } from "./components/GroupCard.js";
@@ -19,7 +19,6 @@ const LEGACY_TEXT_MAP = {
   "РџС‚": "Пт",
   "РЎР±": "Сб",
   "Р’СЃ": "Вс",
-  "Р“РѕСЃС‚СЊ": "Гость",
   "Р“СЂСѓРїРїР°": "Группа",
   "РЈС‡РµРЅРёРє": "Ученик",
   "РЈС‡Р°СЃС‚РЅРёРє 1": "Участник 1",
@@ -127,14 +126,14 @@ function refreshTopbarAuthState() {
   const logoutButton = document.getElementById("logout-btn");
   const currentUserNode = document.getElementById("current-user");
 
-  document.body.classList.toggle("is-guest", !isLoggedIn);
+  document.body.classList.toggle("is-auth-required", !isLoggedIn);
 
   if (logoutButton) {
     logoutButton.classList.toggle("is-hidden", !isLoggedIn);
   }
 
   if (currentUserNode) {
-    currentUserNode.textContent = isLoggedIn && currentUser ? normalizeLegacyText(currentUser.name) : "Гость";
+    currentUserNode.textContent = isLoggedIn && currentUser ? normalizeLegacyText(currentUser.name) : "";
   }
 }
 

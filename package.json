@@ -1,0 +1,15 @@
+{
+  "name": "attendpro-local-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local always-on server for AttendPro",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "serve:lan": "set HOST=0.0.0.0&& set PORT=8080&& node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  }
+}

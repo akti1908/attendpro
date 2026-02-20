@@ -101,7 +101,7 @@ h1 {
   flex-wrap: wrap;
 }
 
-body.is-guest .nav-actions {
+body.is-auth-required .nav-actions {
   display: none;
 }
 
@@ -135,6 +135,10 @@ body.is-guest .nav-actions {
 
 .topbar-auth .muted {
   white-space: nowrap;
+}
+
+.topbar-auth .muted:empty {
+  display: none;
 }
 
 .auth-wrap {
