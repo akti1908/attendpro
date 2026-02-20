@@ -7,14 +7,37 @@ export function renderGroupCard(group, ctx) {
     .map((session) => `<li>${ctx.formatDate(session.date)} в ${session.time}</li>`)
     .join("");
 
+  const selectedHour = Number(String(group.time || "00:00").slice(0, 2));
+  const dayInputs = renderDayCheckboxes(ctx.weekDays, group.scheduleDays, `group-edit-day-${group.id}`);
+
   return `
-    <article class="card card-item">
-      <h3>${group.name}</h3>
+    <article class="card card-item" data-group-card="${group.id}">
+      <div class="card-head">
+        <h3>${group.name}</h3>
+        <button class="btn small-btn" type="button" data-action="toggle-group-edit" data-group-id="${group.id}">Редактировать</button>
+      </div>
+
       <p class="muted">Дни: ${group.scheduleDays.map((day) => ctx.dayLabel(day)).join(", ")} | Время: ${group.time}</p>
       <p class="muted">Ученики: ${group.students.map((student) => student.name).join(", ")}</p>
-      <div class="session-actions">
-        <button class="btn small-btn" data-action="delete-group" data-group-id="${group.id}">Удалить группу</button>
+
+      <div class="card-edit-panel is-hidden" data-group-edit-panel="${group.id}">
+        <div class="form-row">
+          <input data-group-field="name" type="text" value="${escapeAttr(group.name)}" placeholder="Название группы" />
+          <select data-group-field="hour">${renderHourOptions(selectedHour)}</select>
+          <input data-group-field="students" type="text" value="${escapeAttr(group.students.map((student) => student.name).join(", "))}" placeholder="Ученики (через запятую)" />
+        </div>
+
+        <div class="days mt-8" data-group-days-container="${group.id}">
+          ${dayInputs}
+        </div>
+
+        <div class="session-actions">
+          <button class="btn small-btn" type="button" data-action="save-group-edit" data-group-id="${group.id}">Сохранить</button>
+          <button class="btn small-btn" type="button" data-action="cancel-group-edit" data-group-id="${group.id}">Отмена</button>
+          <button class="btn small-btn" type="button" data-action="delete-group" data-group-id="${group.id}">Удалить группу</button>
+        </div>
       </div>
+
       <ul>${upcomingSessions || "<li class='muted'>Ближайших тренировок нет.</li>"}</ul>
     </article>
   `;
@@ -32,7 +55,7 @@ export function renderGroupsManager(root, ctx) {
             <select required name="hour">${renderHourOptions()}</select>
             <input required name="students" placeholder="Ученики (через запятую)" />
           </div>
-          <div id="group-days" class="days">${renderDayCheckboxes(ctx.weekDays)}</div>
+          <div id="group-days" class="days">${renderDayCheckboxes(ctx.weekDays, [], "group-day")}</div>
           <button class="btn btn-primary" type="submit">Добавить группу</button>
         </form>
       </div>
@@ -78,6 +101,52 @@ export function renderGroupsManager(root, ctx) {
     ? ctx.state.groups.map((group) => renderGroupCard(group, ctx)).join("")
     : `<p class="muted">Групп пока нет.</p>`;
 
+  groupsList.querySelectorAll("[data-action='toggle-group-edit']").forEach((button) => {
+    button.addEventListener("click", () => {
+      const card = button.closest("[data-group-card]");
+      if (!card) return;
+
+      const panel = card.querySelector("[data-group-edit-panel]");
+      if (!panel) return;
+
+      const willOpen = panel.classList.contains("is-hidden");
+      setGroupCardEditMode(card, willOpen);
+      if (!willOpen) {
+        resetGroupEditPanel(card);
+      }
+    });
+  });
+
+  groupsList.querySelectorAll("[data-action='cancel-group-edit']").forEach((button) => {
+    button.addEventListener("click", () => {
+      const card = button.closest("[data-group-card]");
+      if (!card) return;
+      resetGroupEditPanel(card);
+      setGroupCardEditMode(card, false);
+    });
+  });
+
+  groupsList.querySelectorAll("[data-action='save-group-edit']").forEach((button) => {
+    button.addEventListener("click", () => {
+      const card = button.closest("[data-group-card]");
+      const panel = card?.querySelector("[data-group-edit-panel]");
+      if (!card || !panel) return;
+
+      const name = String(panel.querySelector('[data-group-field="name"]')?.value || "").trim();
+      const hour = String(panel.querySelector('[data-group-field="hour"]')?.value || "0");
+      const studentsRaw = String(panel.querySelector('[data-group-field="students"]')?.value || "");
+      const students = studentsRaw.split(",").map((item) => item.trim()).filter(Boolean);
+      const scheduleDays = [...panel.querySelectorAll('input[data-day-input="1"]:checked')].map((item) => Number(item.value));
+
+      ctx.actions.updateGroupCardData(button.dataset.groupId, {
+        name,
+        scheduleDays,
+        time: hourToTimeString(hour),
+        students
+      });
+    });
+  });
+
   groupsList.querySelectorAll("[data-action='delete-group']").forEach((button) => {
     button.addEventListener("click", () => {
       const isConfirmed = window.confirm("Удалить группу? Это действие нельзя отменить.");
@@ -87,27 +156,59 @@ export function renderGroupsManager(root, ctx) {
   });
 }
 
-function renderDayCheckboxes(weekDays, selected = []) {
+function setGroupCardEditMode(card, isOpen) {
+  const panel = card.querySelector("[data-group-edit-panel]");
+  const toggle = card.querySelector("[data-action='toggle-group-edit']");
+  if (!panel || !toggle) return;
+
+  panel.classList.toggle("is-hidden", !isOpen);
+  card.classList.toggle("card-editing", isOpen);
+  toggle.textContent = isOpen ? "Скрыть" : "Редактировать";
+}
+
+function resetGroupEditPanel(card) {
+  const panel = card.querySelector("[data-group-edit-panel]");
+  if (!panel) return;
+
+  panel.querySelectorAll("input, select").forEach((control) => {
+    if (control.type === "checkbox" || control.type === "radio") {
+      control.checked = control.defaultChecked;
+      return;
+    }
+    control.value = control.defaultValue;
+  });
+}
+
+function renderDayCheckboxes(weekDays, selected = [], inputName = "group-day") {
   return weekDays
     .map(
       (day) => `
       <label>
-        <input type="checkbox" name="group-day" value="${day.jsDay}" ${selected.includes(day.jsDay) ? "checked" : ""} /> ${day.label}
+        <input type="checkbox" data-day-input="1" name="${inputName}" value="${day.jsDay}" ${selected.includes(day.jsDay) ? "checked" : ""} /> ${day.label}
       </label>
     `
     )
     .join("");
 }
 
-function renderHourOptions() {
+function renderHourOptions(selectedHour = 0) {
   return Array.from({ length: 24 }, (_, hour) => {
     const value = String(hour);
     const label = `${String(hour).padStart(2, "0")}:00`;
-    return `<option value="${value}">${label}</option>`;
+    const selected = Number(selectedHour) === hour ? "selected" : "";
+    return `<option value="${value}" ${selected}>${label}</option>`;
   }).join("");
 }
 
 function hourToTimeString(hourValue) {
   const hour = Number(hourValue);
   return `${String(hour).padStart(2, "0")}:00`;
+}
+
+function escapeAttr(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
 }

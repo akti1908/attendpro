@@ -6,6 +6,7 @@ export function renderHome(root, ctx) {
   const todayISO = ctx.getTodayISO();
   const lockedByMonth = ctx.actions.isDateLocked(selectedDate);
   const editAllowed = ctx.actions.isEditingAllowedForSelectedDate();
+  const showEditToggle = selectedDate !== todayISO;
   const sessions = ctx.getSessionsForDate(selectedDate);
 
   root.innerHTML = `
@@ -15,15 +16,17 @@ export function renderHome(root, ctx) {
         <button id="prev-day" class="btn small-btn">Предыдущий день</button>
         <input id="selected-date" type="date" value="${selectedDate}" />
         <button id="next-day" class="btn small-btn">Следующий день</button>
-        <button id="toggle-edit" class="btn small-btn ${ctx.state.editMode ? "btn-active" : ""}" ${(selectedDate === todayISO || lockedByMonth) ? "disabled" : ""}>
-          ${lockedByMonth
-            ? "Месяц закрыт"
-            : selectedDate === todayISO
-              ? "Сегодня: быстрое редактирование"
-              : ctx.state.editMode
-                ? "Редактирование: ВКЛ"
-                : "Редактировать"}
-        </button>
+        ${showEditToggle
+          ? `
+            <button id="toggle-edit" class="btn small-btn ${ctx.state.editMode ? "btn-active" : ""}" ${lockedByMonth ? "disabled" : ""}>
+              ${lockedByMonth
+                ? "Месяц закрыт"
+                : ctx.state.editMode
+                  ? "Редактирование: ВКЛ"
+                  : "Редактировать"}
+            </button>
+          `
+          : ""}
       </div>
       <p class="muted">${ctx.formatDate(selectedDate)}</p>
       ${lockedByMonth ? `<p class="locked-note">Дата относится к закрытому месяцу. Изменения заблокированы.</p>` : ""}
@@ -48,10 +51,13 @@ export function renderHome(root, ctx) {
     ctx.actions.setSelectedDate(event.currentTarget.value);
   });
 
-  root.querySelector("#toggle-edit").addEventListener("click", () => {
-    if (selectedDate === todayISO || lockedByMonth) return;
-    ctx.actions.toggleEditMode();
-  });
+  const toggleEditButton = root.querySelector("#toggle-edit");
+  if (toggleEditButton) {
+    toggleEditButton.addEventListener("click", () => {
+      if (lockedByMonth) return;
+      ctx.actions.toggleEditMode();
+    });
+  }
 
   // Локальный режим правки внутри карточки: показываем скрытые кнопки после отметки.
   dayList.querySelectorAll("[data-action='toggle-session-edit']").forEach((button) => {

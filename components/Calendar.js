@@ -14,17 +14,14 @@ export function renderCalendar(root, ctx) {
   for (let day = 1; day <= monthEnd.getDate(); day += 1) {
     const isoDate = toLocalISODate(new Date(baseDate.getFullYear(), baseDate.getMonth(), day));
     const sessions = ctx.getSessionsByDate(isoDate);
-
-    const items = sessions
-      .map((session) => `<div class="badge ${session.type}">${session.label}${session.status ? ` (${session.status})` : ""}</div>`)
-      .join("");
+    const items = renderDaySummary(sessions);
 
     const selectedClass = isoDate === ctx.state.selectedDate ? "calendar-cell-selected" : "";
 
     cells.push(`
       <button class="calendar-cell calendar-cell-btn ${selectedClass}" data-action="open-day" data-date="${isoDate}">
         <div class="calendar-day">${day}</div>
-        ${items || `<span class="muted">Нет тренировок</span>`}
+        ${items}
       </button>
     `);
   }
@@ -82,4 +79,24 @@ function toLocalISODate(date) {
 function parseLocalISODate(isoDate) {
   const [y, m, d] = isoDate.split("-").map(Number);
   return new Date(y, m - 1, d);
+}
+
+function renderDaySummary(sessions) {
+  if (!sessions.length) {
+    return `<span class="muted calendar-empty">Нет тренировок</span>`;
+  }
+
+  const personalCount = sessions.filter((session) => session.type === "personal").length;
+  const groupCount = sessions.filter((session) => session.type === "group").length;
+  const plannedCount = sessions.filter((session) => !session.status || session.status === "запланировано").length;
+  const markedCount = sessions.length - plannedCount;
+
+  return `
+    <div class="calendar-cell-summary">
+      ${personalCount ? `<span class="badge personal">Перс: ${personalCount}</span>` : ""}
+      ${groupCount ? `<span class="badge group">Групп: ${groupCount}</span>` : ""}
+      ${markedCount ? `<span class="badge calendar-marked">Отмечено: ${markedCount}</span>` : ""}
+      ${plannedCount ? `<span class="badge calendar-planned">План: ${plannedCount}</span>` : ""}
+    </div>
+  `;
 }

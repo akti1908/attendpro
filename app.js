@@ -11,6 +11,7 @@ const STORAGE_KEY = "attendpro_state_v4";
 const APP_VERSION = 5;
 const ALLOWED_THEMES = ["dark", "light", "ocean", "sunset"];
 const CLOUD_SYNC_DEBOUNCE_MS = 1200;
+const MOBILE_LAYOUT_MAX_WIDTH = 980;
 const LEGACY_TEXT_MAP = {
   "РџРЅ": "Пн",
   "Р’С‚": "Вт",
@@ -70,6 +71,7 @@ let cloudSyncQueued = false;
 let swRefreshTriggered = false;
 
 const root = document.getElementById("app");
+bindTopbarMenu();
 bindTopNavigation();
 bindThemeControl();
 bindLogoutButton();
@@ -94,13 +96,58 @@ function bindTopNavigation() {
 
     button.addEventListener("click", () => {
       if (!isAuthenticated()) return;
-      if (state.view === view) return;
+      if (state.view === view) {
+        closeTopbarMenu();
+        return;
+      }
       state.view = view;
       if (view !== "home") state.editMode = false;
       saveState();
+      closeTopbarMenu();
       renderApp();
     });
   });
+}
+
+function bindTopbarMenu() {
+  const menuToggle = document.getElementById("menu-toggle");
+  if (!menuToggle) return;
+
+  menuToggle.addEventListener("click", () => {
+    const isOpen = document.body.classList.contains("menu-open");
+    setTopbarMenuOpen(!isOpen);
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!isMobileLayout()) return;
+    const topbar = document.querySelector(".topbar");
+    if (topbar && !topbar.contains(event.target)) {
+      setTopbarMenuOpen(false);
+    }
+  });
+
+  window.addEventListener("resize", () => {
+    if (!isMobileLayout()) {
+      setTopbarMenuOpen(false);
+    }
+  });
+}
+
+function isMobileLayout() {
+  return window.innerWidth <= MOBILE_LAYOUT_MAX_WIDTH;
+}
+
+function setTopbarMenuOpen(isOpen) {
+  const menuToggle = document.getElementById("menu-toggle");
+  document.body.classList.toggle("menu-open", Boolean(isOpen));
+  if (menuToggle) {
+    menuToggle.setAttribute("aria-expanded", isOpen ? "true" : "false");
+  }
+}
+
+function closeTopbarMenu() {
+  if (!isMobileLayout()) return;
+  setTopbarMenuOpen(false);
 }
 
 function registerServiceWorker() {
@@ -153,6 +200,7 @@ function bindLogoutButton() {
   if (!logoutButton) return;
 
   logoutButton.addEventListener("click", () => {
+    closeTopbarMenu();
     logoutUser();
   });
 }
@@ -167,6 +215,10 @@ function refreshTopbarAuthState() {
 
   if (logoutButton) {
     logoutButton.classList.toggle("is-hidden", !isLoggedIn);
+  }
+
+  if (!isLoggedIn) {
+    setTopbarMenuOpen(false);
   }
 
   if (currentUserNode) {
@@ -509,8 +561,10 @@ function buildContext() {
       addStudent,
       addStudentPackage,
       updateStudentSchedule,
+      updateStudentCardData,
       deleteStudentCard,
       addGroup,
+      updateGroupCardData,
       deleteGroupCard,
       markPersonalSession,
       forceSetPersonalStatus,
@@ -1379,6 +1433,51 @@ function updateStudentSchedule(studentId, scheduleDays) {
   if (!student) return;
 
   student.scheduleDays = sanitizeWeekDays(scheduleDays);
+  if (!student.scheduleDays.length) {
+    alert("Выберите хотя бы один день недели.");
+    return;
+  }
+  rebuildStudentPlannedSessions(student, getTodayISO());
+
+  saveState();
+  renderApp();
+}
+
+function updateStudentCardData(studentId, payload) {
+  const ownerId = getCurrentUserId();
+  const student = state.students.find((item) => item.id === studentId && item.ownerId === ownerId);
+  if (!student) return;
+
+  const primaryName = String(payload?.primaryName || "").trim();
+  const secondaryName = String(payload?.secondaryName || "").trim();
+  const scheduleDays = sanitizeWeekDays(payload?.scheduleDays);
+  const time = sanitizeHourTime(payload?.time || student.time);
+
+  if (!primaryName) {
+    alert("Введите имя ученика.");
+    return;
+  }
+
+  if (!scheduleDays.length) {
+    alert("Выберите хотя бы один день недели.");
+    return;
+  }
+
+  if (student.trainingType === "split" && !secondaryName) {
+    alert("Для сплита нужно указать второго участника.");
+    return;
+  }
+
+  if (student.trainingType === "split") {
+    student.participants = [primaryName, secondaryName];
+    student.name = `${primaryName} / ${secondaryName}`;
+  } else {
+    student.participants = [primaryName];
+    student.name = primaryName;
+  }
+
+  student.time = time;
+  student.scheduleDays = scheduleDays;
   rebuildStudentPlannedSessions(student, getTodayISO());
 
   saveState();
@@ -1439,6 +1538,72 @@ function addGroup(payload) {
   state.groups.push(group);
   saveState();
   renderApp();
+}
+
+function updateGroupCardData(groupId, payload) {
+  const ownerId = getCurrentUserId();
+  const group = state.groups.find((item) => item.id === groupId && item.ownerId === ownerId);
+  if (!group) return;
+
+  const name = String(payload?.name || "").trim();
+  const scheduleDays = sanitizeWeekDays(payload?.scheduleDays);
+  const time = sanitizeHourTime(payload?.time || group.time);
+  const rawStudents = Array.isArray(payload?.students) ? payload.students : [];
+  const names = rawStudents.map((value) => String(value || "").trim()).filter(Boolean);
+
+  if (!name) {
+    alert("Введите название группы.");
+    return;
+  }
+
+  if (!scheduleDays.length) {
+    alert("Выберите хотя бы один день недели.");
+    return;
+  }
+
+  if (!names.length) {
+    alert("Добавьте хотя бы одного ученика.");
+    return;
+  }
+
+  group.name = name;
+  group.time = time;
+  group.scheduleDays = scheduleDays;
+  group.students = syncGroupStudentsByName(group.students, names);
+
+  const allowedIds = new Set(group.students.map((student) => student.id));
+  group.sessions.forEach((session) => {
+    const current = session.attendance || {};
+    const filtered = {};
+    Object.entries(current).forEach(([studentId, status]) => {
+      if (!allowedIds.has(studentId)) return;
+      filtered[studentId] = status;
+    });
+    session.attendance = filtered;
+  });
+
+  rebuildGroupFutureSessions(group, getTodayISO());
+  saveState();
+  renderApp();
+}
+
+function syncGroupStudentsByName(currentStudents, nextNames) {
+  const pool = Array.isArray(currentStudents) ? [...currentStudents] : [];
+  return nextNames.map((name) => {
+    const lower = name.toLowerCase();
+    const matchedIndex = pool.findIndex((item) => String(item.name || "").toLowerCase() === lower);
+    if (matchedIndex >= 0) {
+      const [matched] = pool.splice(matchedIndex, 1);
+      return {
+        id: matched.id,
+        name
+      };
+    }
+    return {
+      id: createId("member"),
+      name
+    };
+  });
 }
 
 function deleteGroupCard(groupId) {

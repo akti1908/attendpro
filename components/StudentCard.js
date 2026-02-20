@@ -11,7 +11,7 @@ export function renderStudentCard(student, ctx) {
     .map((session) => `<li>${ctx.formatDate(session.date)} в ${session.time} - <strong>${session.status}</strong></li>`)
     .join("");
 
-  const dayInputs = renderDayCheckboxes(ctx.weekDays, student.scheduleDays);
+  const editDayInputs = renderDayCheckboxes(ctx.weekDays, student.scheduleDays, `student-edit-day-${student.id}`);
   const typeLabel = student.trainingType === "split" ? "Сплит" : "Персональная";
   const participantsLabel = student.trainingType === "split"
     ? `${student.participants[0]} + ${student.participants[1]}`
@@ -19,10 +19,15 @@ export function renderStudentCard(student, ctx) {
   const activePackagePrice = student.trainingType === "split"
     ? `${formatMoney(student.activePackage?.pricePerPerson || 0)} сом/чел`
     : `${formatMoney(student.activePackage?.totalPrice || 0)} сом`;
+  const selectedHour = Number(String(student.time || "00:00").slice(0, 2));
 
   return `
-    <article class="card card-item">
-      <h3>${student.name}</h3>
+    <article class="card card-item" data-student-card="${student.id}">
+      <div class="card-head">
+        <h3>${student.name}</h3>
+        <button class="btn small-btn" type="button" data-action="toggle-student-edit" data-student-id="${student.id}">Редактировать</button>
+      </div>
+
       <p class="muted">Формат: ${typeLabel}</p>
       <p class="muted">Участники: ${participantsLabel}</p>
       <p class="muted">Осталось: ${student.remainingTrainings} / ${student.totalTrainings}</p>
@@ -34,16 +39,27 @@ export function renderStudentCard(student, ctx) {
         <select data-package-select-for="${student.id}">
           ${packageSelect}
         </select>
-        <button class="btn small-btn" data-action="apply-package" data-student-id="${student.id}">Добавить новый пакет</button>
+        <button class="btn small-btn" type="button" data-action="apply-package" data-student-id="${student.id}">Добавить новый пакет</button>
       </div>
 
-      <div class="days mt-8" data-days-container="${student.id}">
-        ${dayInputs}
-      </div>
+      <div class="card-edit-panel is-hidden" data-student-edit-panel="${student.id}">
+        <div class="form-row">
+          <input data-student-field="primary-name" type="text" value="${escapeAttr(student.participants[0] || "")}" placeholder="Имя ученика" />
+          ${student.trainingType === "split"
+            ? `<input data-student-field="secondary-name" type="text" value="${escapeAttr(student.participants[1] || "")}" placeholder="Имя второго участника" />`
+            : ""}
+          <select data-student-field="hour">${renderHourOptions(selectedHour)}</select>
+        </div>
 
-      <div class="session-actions">
-        <button class="btn small-btn" data-action="update-days" data-student-id="${student.id}">Обновить дни</button>
-        <button class="btn small-btn" data-action="delete-student" data-student-id="${student.id}">Удалить карточку</button>
+        <div class="days mt-8" data-edit-days-container="${student.id}">
+          ${editDayInputs}
+        </div>
+
+        <div class="session-actions">
+          <button class="btn small-btn" type="button" data-action="save-student-edit" data-student-id="${student.id}">Сохранить</button>
+          <button class="btn small-btn" type="button" data-action="cancel-student-edit" data-student-id="${student.id}">Отмена</button>
+          <button class="btn small-btn" type="button" data-action="delete-student" data-student-id="${student.id}">Удалить карточку</button>
+        </div>
       </div>
 
       <div class="history-list">
@@ -76,7 +92,7 @@ export function renderStudentsManager(root, ctx) {
             <select required name="hour">${renderHourOptions()}</select>
           </div>
 
-          <div id="student-days" class="days">${renderDayCheckboxes(ctx.weekDays)}</div>
+          <div id="student-days" class="days">${renderDayCheckboxes(ctx.weekDays, [], "student-day")}</div>
           <button class="btn btn-primary" type="submit">Создать карточку</button>
         </form>
       </div>
@@ -134,24 +150,55 @@ export function renderStudentsManager(root, ctx) {
     ? ctx.state.students.map((student) => renderStudentCard(student, ctx)).join("")
     : `<p class="muted">Карточек пока нет.</p>`;
 
+  studentsList.querySelectorAll("[data-action='toggle-student-edit']").forEach((button) => {
+    button.addEventListener("click", () => {
+      const card = button.closest("[data-student-card]");
+      if (!card) return;
+
+      const panel = card.querySelector("[data-student-edit-panel]");
+      if (!panel) return;
+
+      const willOpen = panel.classList.contains("is-hidden");
+      setStudentCardEditMode(card, willOpen);
+      if (!willOpen) {
+        resetStudentEditPanel(card);
+      }
+    });
+  });
+
+  studentsList.querySelectorAll("[data-action='cancel-student-edit']").forEach((button) => {
+    button.addEventListener("click", () => {
+      const card = button.closest("[data-student-card]");
+      if (!card) return;
+      resetStudentEditPanel(card);
+      setStudentCardEditMode(card, false);
+    });
+  });
+
+  studentsList.querySelectorAll("[data-action='save-student-edit']").forEach((button) => {
+    button.addEventListener("click", () => {
+      const card = button.closest("[data-student-card]");
+      const panel = card?.querySelector("[data-student-edit-panel]");
+      if (!card || !panel) return;
+
+      const primaryName = String(panel.querySelector('[data-student-field="primary-name"]')?.value || "").trim();
+      const secondaryName = String(panel.querySelector('[data-student-field="secondary-name"]')?.value || "").trim();
+      const hour = String(panel.querySelector('[data-student-field="hour"]')?.value || "0");
+      const scheduleDays = [...panel.querySelectorAll('input[data-day-input="1"]:checked')].map((item) => Number(item.value));
+
+      ctx.actions.updateStudentCardData(button.dataset.studentId, {
+        primaryName,
+        secondaryName,
+        scheduleDays,
+        time: hourToTimeString(hour)
+      });
+    });
+  });
+
   studentsList.querySelectorAll("[data-action='apply-package']").forEach((button) => {
     button.addEventListener("click", () => {
       const select = studentsList.querySelector(`[data-package-select-for='${button.dataset.studentId}']`);
       ctx.actions.addStudentPackage(button.dataset.studentId, Number(select.value));
-    });
-  });
-
-  studentsList.querySelectorAll("[data-action='update-days']").forEach((button) => {
-    button.addEventListener("click", () => {
-      const container = studentsList.querySelector(`[data-days-container='${button.dataset.studentId}']`);
-      const selectedDays = [...container.querySelectorAll("input:checked")].map((item) => Number(item.value));
-
-      if (!selectedDays.length) {
-        alert("Выберите хотя бы один день недели.");
-        return;
-      }
-
-      ctx.actions.updateStudentSchedule(button.dataset.studentId, selectedDays);
     });
   });
 
@@ -164,12 +211,35 @@ export function renderStudentsManager(root, ctx) {
   });
 }
 
-function renderDayCheckboxes(weekDays, selected = []) {
+function setStudentCardEditMode(card, isOpen) {
+  const panel = card.querySelector("[data-student-edit-panel]");
+  const toggle = card.querySelector("[data-action='toggle-student-edit']");
+  if (!panel || !toggle) return;
+
+  panel.classList.toggle("is-hidden", !isOpen);
+  card.classList.toggle("card-editing", isOpen);
+  toggle.textContent = isOpen ? "Скрыть" : "Редактировать";
+}
+
+function resetStudentEditPanel(card) {
+  const panel = card.querySelector("[data-student-edit-panel]");
+  if (!panel) return;
+
+  panel.querySelectorAll("input, select").forEach((control) => {
+    if (control.type === "checkbox" || control.type === "radio") {
+      control.checked = control.defaultChecked;
+      return;
+    }
+    control.value = control.defaultValue;
+  });
+}
+
+function renderDayCheckboxes(weekDays, selected = [], inputName = "student-day") {
   return weekDays
     .map(
       (day) => `
       <label>
-        <input type="checkbox" name="student-day" value="${day.jsDay}" ${selected.includes(day.jsDay) ? "checked" : ""} /> ${day.label}
+        <input type="checkbox" data-day-input="1" name="${inputName}" value="${day.jsDay}" ${selected.includes(day.jsDay) ? "checked" : ""} /> ${day.label}
       </label>
     `
     )
@@ -210,11 +280,12 @@ function renderPackageHistory(student, ctx) {
     .join("");
 }
 
-function renderHourOptions() {
+function renderHourOptions(selectedHour = 0) {
   return Array.from({ length: 24 }, (_, hour) => {
     const value = String(hour);
     const label = `${String(hour).padStart(2, "0")}:00`;
-    return `<option value="${value}">${label}</option>`;
+    const selected = Number(selectedHour) === hour ? "selected" : "";
+    return `<option value="${value}" ${selected}>${label}</option>`;
   }).join("");
 }
 
@@ -225,4 +296,12 @@ function hourToTimeString(hourValue) {
 
 function formatMoney(value) {
   return Number(value).toLocaleString("ru-RU");
+}
+
+function escapeAttr(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
 }
