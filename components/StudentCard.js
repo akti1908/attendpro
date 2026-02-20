@@ -21,7 +21,7 @@ export function renderStudentCard(student, ctx) {
     : `${formatMoney(student.activePackage?.totalPrice || 0)} сом`;
 
   return `
-    <article class="card" style="margin-bottom:8px;">
+    <article class="card card-item">
       <h3>${student.name}</h3>
       <p class="muted">Формат: ${typeLabel}</p>
       <p class="muted">Участники: ${participantsLabel}</p>
@@ -37,7 +37,7 @@ export function renderStudentCard(student, ctx) {
         <button class="btn small-btn" data-action="apply-package" data-student-id="${student.id}">Добавить новый пакет</button>
       </div>
 
-      <div class="days" data-days-container="${student.id}" style="margin-top:8px;">
+      <div class="days mt-8" data-days-container="${student.id}">
         ${dayInputs}
       </div>
 

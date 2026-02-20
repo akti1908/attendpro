@@ -23,7 +23,7 @@ export function renderSalary(root, ctx) {
           : "Месяц открыт. Данные пересчитываются в реальном времени."}
       </p>
 
-      <div class="stats-grid" style="margin-top:8px;">
+      <div class="stats-grid mt-8">
         <div class="stat-card"><span class="muted">Персональных занятий</span><strong>${report.personal.sessions}</strong></div>
         <div class="stat-card"><span class="muted">Сплит-занятий</span><strong>${report.split.sessions}</strong></div>
         <div class="stat-card"><span class="muted">ЗП с персональных</span><strong>${formatMoney(report.personal.income)} сом</strong></div>
@@ -33,7 +33,7 @@ export function renderSalary(root, ctx) {
       </div>
     </section>
 
-    <section class="card" style="margin-top:12px;">
+    <section class="card section-gap">
       <h2 class="section-title">Детализация по карточкам</h2>
       <div id="salary-list" class="list-scroll"></div>
     </section>
@@ -71,7 +71,7 @@ function renderSalaryRow(row) {
   const label = row.type === "split" ? "Сплит" : "Персональная";
 
   return `
-    <article class="card stat-result" style="margin-bottom:8px;">
+    <article class="card stat-result card-item">
       <h3>${row.name}</h3>
       <p><span class="muted">Тип:</span> ${label}</p>
       <p><span class="muted">Занятий в месяце:</span> ${row.attended}</p>

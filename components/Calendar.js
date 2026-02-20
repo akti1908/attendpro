@@ -48,7 +48,7 @@ export function renderCalendar(root, ctx) {
           <div class="calendar-day">Вс</div>
         </div>
 
-        <div class="calendar-grid" style="margin-top:8px;">
+        <div class="calendar-grid calendar-body">
           ${cells.join("")}
         </div>
       </div>

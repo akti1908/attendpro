@@ -64,7 +64,7 @@ body[data-theme="sunset"] {
 
 body {
   margin: 0;
-  font-family: "Segoe UI", Tahoma, sans-serif;
+  font-family: "Segoe UI", "Noto Sans", Arial, sans-serif;
   background: var(--bg);
   color: var(--text);
   line-height: 1.4;
@@ -223,6 +223,23 @@ body.is-auth-required .nav-actions {
   border: 1px solid var(--border);
   border-radius: 14px;
   padding: 14px;
+  overflow-wrap: anywhere;
+}
+
+.card-item {
+  margin-bottom: 8px;
+}
+
+.section-gap {
+  margin-top: 12px;
+}
+
+.mt-8 {
+  margin-top: 8px;
+}
+
+.mt-10 {
+  margin-top: 10px;
 }
 
 .muted {
@@ -239,7 +256,7 @@ body.is-auth-required .nav-actions {
   margin-bottom: 8px;
 }
 
-input,
+input:not([type="checkbox"]):not([type="radio"]),
 select {
   width: 100%;
   padding: 8px;
@@ -250,16 +267,30 @@ select {
   color: var(--text);
 }
 
+input[type="checkbox"],
+input[type="radio"] {
+  width: 16px;
+  height: 16px;
+  min-height: 0;
+  margin: 0;
+  accent-color: #9fb4d1;
+}
+
 .days {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(74px, 1fr));
   gap: 8px;
 }
 
 .days label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 40px;
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 6px 8px;
+  padding: 6px 10px;
   font-size: 0.9rem;
   background: var(--surface-soft);
 }
@@ -340,9 +371,9 @@ select {
 }
 
 .session-actions {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   gap: 8px;
-  flex-wrap: wrap;
   margin-top: 8px;
 }
 
@@ -376,6 +407,7 @@ select {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 8px;
   margin-bottom: 10px;
 }
 
@@ -383,6 +415,10 @@ select {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: 8px;
+}
+
+.calendar-body {
+  margin-top: 8px;
 }
 
 .calendar-scroll {
@@ -442,16 +478,25 @@ select {
 .group-check {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  justify-content: center;
+  gap: 6px;
+  min-height: 40px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 4px 7px;
+  padding: 6px 9px;
   background: rgba(255, 255, 255, 0.05);
+  width: 100%;
 }
 
 .group-check input {
-  width: auto;
+  width: 16px;
+  height: 16px;
+  min-height: 0;
   margin: 0;
+}
+
+.group-student-row {
+  margin-top: 6px;
 }
 
 .stats-grid {
@@ -541,6 +586,7 @@ select {
     z-index: 30;
     background: var(--bg);
     padding: 8px 0;
+    flex-wrap: wrap;
   }
 
   .topbar-right {
@@ -550,15 +596,18 @@ select {
 
   .nav-actions {
     width: 100%;
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    padding-bottom: 4px;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    overflow: visible;
+    padding-bottom: 0;
   }
 
   .nav-actions .btn {
-    flex: 0 0 auto;
-    white-space: nowrap;
+    width: 100%;
+    min-height: 42px;
+    padding-inline: 8px;
+    font-size: 0.9rem;
+    white-space: normal;
   }
 
   .theme-control {
@@ -610,7 +659,7 @@ select {
     font-size: 0.9rem;
   }
 
-  input,
+  input:not([type="checkbox"]):not([type="radio"]),
   select {
     min-height: 44px;
     font-size: 16px;
@@ -635,17 +684,11 @@ select {
   }
 
   .session-actions {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .session-actions .btn {
-    width: 100%;
+    grid-template-columns: 1fr;
   }
 
   .group-check {
-    width: 100%;
-    justify-content: center;
+    justify-content: flex-start;
   }
 
   .package-controls {
@@ -691,11 +734,23 @@ select {
   .stats-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .calendar-toolbar {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .calendar-toolbar h2 {
+    grid-column: 1 / -1;
+    order: -1;
+    text-align: center;
+    font-size: 1.05rem;
+  }
 }
 
 @media (max-width: 520px) {
-  .session-actions {
-    grid-template-columns: 1fr;
+  .nav-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .stats-grid {

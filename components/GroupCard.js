@@ -8,7 +8,7 @@ export function renderGroupCard(group, ctx) {
     .join("");
 
   return `
-    <article class="card" style="margin-bottom:8px;">
+    <article class="card card-item">
       <h3>${group.name}</h3>
       <p class="muted">Дни: ${group.scheduleDays.map((day) => ctx.dayLabel(day)).join(", ")} | Время: ${group.time}</p>
       <p class="muted">Ученики: ${group.students.map((student) => student.name).join(", ")}</p>

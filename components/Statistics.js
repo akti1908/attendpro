@@ -24,10 +24,10 @@ export function renderStatistics(root, ctx) {
       </div>
     </section>
 
-    <section class="card" style="margin-top:12px;">
+    <section class="card section-gap">
       <h2 class="section-title">Поиск по карточкам</h2>
       <input id="stats-search" type="text" placeholder="Введите имя ученика или название группы" />
-      <div id="stats-list" class="list-scroll" style="margin-top:10px;"></div>
+      <div id="stats-list" class="list-scroll mt-10"></div>
     </section>
   `;
 
@@ -95,7 +95,7 @@ function renderStatCard(item, ctx) {
     : `<p><span class="muted">Доход тренера:</span> ${formatMoney(item.income || 0)} сом</p>`;
 
   return `
-    <article class="card stat-result" style="margin-bottom:8px;">
+    <article class="card stat-result card-item">
       <h3>${item.name}</h3>
       <p><span class="muted">Тип:</span> ${typeLabel}</p>
       <p><span class="muted">Посещений:</span> ${item.visits}</p>

@@ -55,7 +55,7 @@ export function renderSession(entry, options = {}) {
       const currentStatus = session.attendance[student.id] || "-";
 
       return `
-        <div style="margin-top:6px;">
+        <div class="group-student-row">
           <strong>${student.name}</strong> <span class="muted">(${currentStatus})</span>
 
           <div class="session-actions">
