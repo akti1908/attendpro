@@ -212,9 +212,7 @@ function bindLogoutButton() {
 
 function refreshTopbarAuthState() {
   const isLoggedIn = isAuthenticated();
-  const currentUser = getCurrentUser();
   const logoutButton = document.getElementById("logout-btn");
-  const currentUserNode = document.getElementById("current-user");
 
   document.body.classList.toggle("is-auth-required", !isLoggedIn);
 
@@ -224,10 +222,6 @@ function refreshTopbarAuthState() {
 
   if (!isLoggedIn) {
     setTopbarMenuOpen(false);
-  }
-
-  if (currentUserNode) {
-    currentUserNode.textContent = isLoggedIn && currentUser ? normalizeLegacyText(currentUser.name) : "";
   }
 }
 
