@@ -1310,11 +1310,10 @@ function getCoachIncomePerSession(activePackage, trainingType) {
   if (!activePackage) return 0;
 
   const count = Number(activePackage.count) || 1;
-  const coachFactor = normalizeCoachPercent(activePackage.coachPercent) / 100;
   if (trainingType === "split") {
     const perPerson = Number(activePackage.pricePerPerson || 0);
     const totalPerSession = (perPerson * 2) / count;
-    return roundMoney(totalPerSession * coachFactor);
+    return roundMoney(totalPerSession);
   }
 
   if (trainingType === "mini_group") {
@@ -1324,11 +1323,11 @@ function getCoachIncomePerSession(activePackage, trainingType) {
       Math.min(MINI_GROUP_MAX_PARTICIPANTS, Number(activePackage.participantsCount || MINI_GROUP_MIN_PARTICIPANTS))
     );
     const totalPerSession = (perPerson * participantsCount) / count;
-    return roundMoney(totalPerSession * coachFactor);
+    return roundMoney(totalPerSession);
   }
 
   const totalPrice = Number(activePackage.totalPrice || 0);
-  return roundMoney((totalPrice / count) * coachFactor);
+  return roundMoney(totalPrice / count);
 }
 
 function roundMoney(value) {
