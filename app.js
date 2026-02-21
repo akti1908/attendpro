@@ -395,7 +395,7 @@ async function cloudUpdateStateByAccount(user, appStatePayload) {
 
 function buildCloudStatePayload() {
   const ownerId = getCurrentUserId();
-  const sync = normalizeSyncState(state.sync);
+  const sync = getSyncStateForUser(ownerId);
   const dataUpdatedAt = sync.lastDataChangeAt || new Date().toISOString();
   return {
     selectedDate: state.selectedDate,
@@ -466,12 +466,14 @@ async function pushStateToCloud() {
   cloudSyncQueued = false;
   try {
     await cloudUpdateStateByAccount(user, buildCloudStatePayload());
-    state.sync = normalizeSyncState(state.sync);
-    state.sync.pendingDataSync = false;
-    state.sync.lastCloudUpdateAt = new Date().toISOString();
-    if (!state.sync.lastDataChangeAt) {
-      state.sync.lastDataChangeAt = state.sync.lastCloudUpdateAt;
+    const sync = getSyncStateForUser(user.id);
+    sync.pendingDataSync = false;
+    sync.lastCloudUpdateAt = new Date().toISOString();
+    if (!sync.lastDataChangeAt) {
+      sync.lastDataChangeAt = sync.lastCloudUpdateAt;
     }
+    setSyncStateForUser(user.id, sync);
+    state.sync = { ...sync };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     return true;
   } catch (error) {
@@ -495,7 +497,7 @@ async function pullStateFromCloudForUser(user) {
     const ownerId = user.id;
     const localHasData = hasOwnedDataForUser(ownerId);
     const remoteHasData = hasDataInPayload(payload);
-    const sync = normalizeSyncState(state.sync);
+    const sync = getSyncStateForUser(ownerId);
     const remoteUpdatedAt = getRemotePayloadUpdatedAt(payload, account.updated_at);
 
     // Если есть локальные несинхронизированные изменения, не перетираем их облаком.
@@ -512,16 +514,18 @@ async function pullStateFromCloudForUser(user) {
 
     const changed = applyCloudStatePayload(payload, user);
     if (changed) {
-      state.sync = normalizeSyncState(state.sync);
-      state.sync.pendingDataSync = false;
+      const nextSync = getSyncStateForUser(ownerId);
+      nextSync.pendingDataSync = false;
       if (remoteUpdatedAt) {
-        state.sync.lastCloudUpdateAt = remoteUpdatedAt;
-        state.sync.lastDataChangeAt = remoteUpdatedAt;
+        nextSync.lastCloudUpdateAt = remoteUpdatedAt;
+        nextSync.lastDataChangeAt = remoteUpdatedAt;
       } else {
         const nowISO = new Date().toISOString();
-        state.sync.lastCloudUpdateAt = nowISO;
-        state.sync.lastDataChangeAt = state.sync.lastDataChangeAt || nowISO;
+        nextSync.lastCloudUpdateAt = nowISO;
+        nextSync.lastDataChangeAt = nextSync.lastDataChangeAt || nowISO;
       }
+      setSyncStateForUser(ownerId, nextSync);
+      state.sync = { ...nextSync };
       saveState({ skipCloud: true });
       renderApp();
     }
@@ -537,7 +541,7 @@ async function bootstrapCloudSync() {
   const currentUser = getCurrentUser();
   if (!currentUser) return;
 
-  const sync = normalizeSyncState(state.sync);
+  const sync = getSyncStateForUser(currentUser.id);
   if (sync.pendingDataSync) {
     const pushed = await pushStateToCloud();
     if (!pushed) return;
@@ -671,6 +675,7 @@ function createInitialState() {
     auth: {
       currentUserId: null
     },
+    syncByUser: {},
     sync: {
       ...DEFAULT_SYNC_STATE
     },
@@ -695,9 +700,15 @@ function loadState() {
 
 function saveState(options = {}) {
   if (options.dataChanged) {
-    state.sync = normalizeSyncState(state.sync);
-    state.sync.pendingDataSync = true;
-    state.sync.lastDataChangeAt = new Date().toISOString();
+    const userId = state?.auth?.currentUserId || getCurrentUserId();
+    if (userId) {
+      const sync = getSyncStateForUser(userId);
+      sync.pendingDataSync = true;
+      sync.lastDataChangeAt = new Date().toISOString();
+      setSyncStateForUser(userId, sync);
+      // Оставляем legacy-поле для обратной совместимости с ранними версиями.
+      state.sync = { ...sync };
+    }
   }
 
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -720,7 +731,12 @@ function normalizeState(input) {
   next.salaryMonth = ensureMonthISO(next.salaryMonth, defaults.salaryMonth);
   next.users = Array.isArray(next.users) ? next.users.map(normalizeUser).filter(Boolean) : [];
   next.auth = normalizeAuth(next.auth, next.users);
-  next.sync = normalizeSyncState(next.sync);
+  const legacySync = normalizeSyncState(next.sync);
+  next.syncByUser = normalizeSyncByUser(next.syncByUser);
+  if (next.auth.currentUserId && !next.syncByUser[next.auth.currentUserId]) {
+    next.syncByUser[next.auth.currentUserId] = { ...legacySync };
+  }
+  next.sync = legacySync;
   next.editMode = Boolean(next.editMode);
   const fallbackOwnerId = getMigrationFallbackOwnerId(next.users);
   next.students = Array.isArray(next.students)
@@ -760,6 +776,20 @@ function normalizeSyncState(rawSync) {
     lastDataChangeAt,
     lastCloudUpdateAt
   };
+}
+
+function normalizeSyncByUser(rawSyncByUser) {
+  if (!rawSyncByUser || typeof rawSyncByUser !== "object" || Array.isArray(rawSyncByUser)) {
+    return {};
+  }
+
+  const normalized = {};
+  Object.entries(rawSyncByUser).forEach(([userId, rawSync]) => {
+    const normalizedUserId = String(userId || "").trim();
+    if (!normalizedUserId) return;
+    normalized[normalizedUserId] = normalizeSyncState(rawSync);
+  });
+  return normalized;
 }
 
 function getMigrationFallbackOwnerId(users) {
@@ -1151,6 +1181,18 @@ function getCurrentUser() {
 
 function getCurrentUserId() {
   return getCurrentUser()?.id || null;
+}
+
+function getSyncStateForUser(userId = getCurrentUserId()) {
+  if (!userId) return normalizeSyncState(state.sync);
+  state.syncByUser = normalizeSyncByUser(state.syncByUser);
+  return normalizeSyncState(state.syncByUser[userId]);
+}
+
+function setSyncStateForUser(userId, nextSync) {
+  if (!userId) return;
+  state.syncByUser = normalizeSyncByUser(state.syncByUser);
+  state.syncByUser[userId] = normalizeSyncState(nextSync);
 }
 
 function isAuthenticated() {
