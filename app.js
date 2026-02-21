@@ -273,15 +273,23 @@ async function syncCloudNow() {
     return { ok: false, message: "Облачная синхронизация не настроена." };
   }
 
-  const pushed = await pushStateToCloud();
-  if (!pushed) {
-    return { ok: false, message: "Не удалось отправить изменения в облако." };
+  const user = getCurrentUser();
+  if (!user) {
+    return { ok: false, message: "Пользователь не найден." };
   }
 
-  const user = getCurrentUser();
-  if (user) {
-    await pullStateFromCloudForUser(user);
+  // Ручная синхронизация: сначала читаем облако (чтобы не перетереть более новые данные),
+  // затем при наличии локального pending делаем push.
+  await pullStateFromCloudForUser(user, { preferRemoteOnConflict: true });
+
+  const sync = getSyncStateForUser(user.id);
+  if (sync.pendingDataSync) {
+    const pushed = await pushStateToCloud();
+    if (!pushed) {
+      return { ok: false, message: "Не удалось отправить изменения в облако." };
+    }
   }
+
   return { ok: true, message: "Синхронизация завершена." };
 }
 
@@ -540,7 +548,7 @@ async function pushStateToCloud() {
   }
 }
 
-async function pullStateFromCloudForUser(user) {
+async function pullStateFromCloudForUser(user, options = {}) {
   if (!isCloudConfigured() || !user?.email) return false;
 
   try {
@@ -554,15 +562,28 @@ async function pullStateFromCloudForUser(user) {
     const remoteHasData = hasDataInPayload(payload);
     const sync = getSyncStateForUser(ownerId);
     const remoteUpdatedAt = getRemotePayloadUpdatedAt(payload, account.updated_at);
+    const localUpdatedAt = sync.lastDataChangeAt;
+    const remoteIsNewerThanLocal = Boolean(
+      remoteUpdatedAt
+      && localUpdatedAt
+      && toEpochMs(remoteUpdatedAt) > toEpochMs(localUpdatedAt)
+    );
+    const preferRemoteOnConflict = Boolean(options?.preferRemoteOnConflict);
 
     // Если есть локальные несинхронизированные изменения, не перетираем их облаком.
     if (sync.pendingDataSync && (localHasData || !remoteHasData)) {
-      await pushStateToCloud();
-      return false;
+      // Если в облаке данные новее (или запросили приоритет облака вручную),
+      // принимаем облачную версию и не пушим локальную поверх нее.
+      if (remoteHasData && (remoteIsNewerThanLocal || preferRemoteOnConflict)) {
+        // Продолжаем и применяем payload ниже.
+      } else {
+        await pushStateToCloud();
+        return false;
+      }
     }
 
-    if (remoteUpdatedAt && sync.lastDataChangeAt && localHasData) {
-      if (toEpochMs(remoteUpdatedAt) <= toEpochMs(sync.lastDataChangeAt)) {
+    if (remoteUpdatedAt && localUpdatedAt && localHasData) {
+      if (toEpochMs(remoteUpdatedAt) <= toEpochMs(localUpdatedAt)) {
         return false;
       }
     }
@@ -596,13 +617,12 @@ async function bootstrapCloudSync() {
   const currentUser = getCurrentUser();
   if (!currentUser) return;
 
+  await pullStateFromCloudForUser(currentUser);
+
   const sync = getSyncStateForUser(currentUser.id);
   if (sync.pendingDataSync) {
-    const pushed = await pushStateToCloud();
-    if (!pushed) return;
+    await pushStateToCloud();
   }
-
-  await pullStateFromCloudForUser(currentUser);
 }
 
 function renderApp() {
