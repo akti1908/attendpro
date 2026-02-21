@@ -21,6 +21,8 @@ export function renderStudentCard(student, ctx) {
   const activePackagePrice = student.trainingType === "split"
     ? `${formatMoney(student.activePackage?.pricePerPerson || 0)} сом/чел`
     : `${formatMoney(student.activePackage?.totalPrice || 0)} сом`;
+  const activePackageCategory = String(student.activePackage?.trainerCategory || "I");
+  const activeCoachPercent = Number(student.activePackage?.coachPercent || 50);
   const selectedHour = Number(String(student.time || "00:00").slice(0, 2));
 
   return `
@@ -33,7 +35,8 @@ export function renderStudentCard(student, ctx) {
       <p class="muted">Формат: ${typeLabel}</p>
       <p class="muted">Участники: ${safeParticipantsLabel}</p>
       <p class="muted">Осталось: ${student.remainingTrainings} / ${student.totalTrainings}</p>
-      <p class="muted">Текущий пакет: ${student.totalTrainings} тренировок / ${activePackagePrice}</p>
+      <p class="muted">Текущий пакет: ${student.totalTrainings} тренировок / ${activePackagePrice} / Категория ${activePackageCategory}</p>
+      <p class="muted">Доля тренера в пакете: ${activeCoachPercent}%</p>
       <p class="muted">Продления пакетов: ${Math.max(0, (student.packagesHistory || []).length - 1)}</p>
       <p class="muted">Дни: ${student.scheduleDays.map((day) => ctx.dayLabel(day)).join(", ")} | Время: ${student.time}</p>
 
@@ -276,8 +279,10 @@ function renderPackageHistory(student, ctx) {
       const priceText = student.trainingType === "split"
         ? `${formatMoney(item.pricePerPerson || 0)} сом/чел`
         : `${formatMoney(item.totalPrice || 0)} сом`;
+      const packageCategory = String(item.trainerCategory || "I");
+      const coachPercent = Number(item.coachPercent || 50);
 
-      return `<li>${dateText}: ${item.count} тренировок - ${priceText}</li>`;
+      return `<li>${dateText}: ${item.count} тренировок - ${priceText}, Категория ${packageCategory}, Доля ${coachPercent}%</li>`;
     })
     .join("");
 }

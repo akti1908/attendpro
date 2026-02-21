@@ -587,6 +587,46 @@ input[type="radio"] {
   color: var(--text);
 }
 
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.setting-item {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+  background: var(--surface-soft);
+  display: grid;
+  gap: 8px;
+}
+
+.small-note {
+  font-size: 0.82rem;
+}
+
+.table-wrap {
+  overflow: auto;
+}
+
+.price-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 320px;
+}
+
+.price-table th,
+.price-table td {
+  border: 1px solid var(--border);
+  padding: 8px;
+  text-align: left;
+}
+
+.price-table th {
+  background: rgba(255, 255, 255, 0.04);
+}
+
 .locked-note {
   margin: 6px 0 10px;
   border: 1px solid #5d636c;

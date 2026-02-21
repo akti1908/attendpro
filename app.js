@@ -6,6 +6,7 @@ import { renderSession } from "./components/Session.js";
 import { renderStatistics } from "./components/Statistics.js";
 import { renderSalary } from "./components/Salary.js";
 import { renderAuth } from "./components/Auth.js";
+import { renderSettings } from "./components/Settings.js";
 
 const STORAGE_KEY = "attendpro_state_v4";
 const APP_VERSION = 5;
@@ -37,23 +38,26 @@ const LEGACY_TEXT_MAP = {
   "РѕС‚СЃСѓС‚СЃС‚РІРѕРІР°Р»": "отсутствовал"
 };
 
-const PERSONAL_PACKAGE_OPTIONS = [
-  { count: 1, totalPrice: 1500 },
-  { count: 5, totalPrice: 6750 },
-  { count: 10, totalPrice: 12000 },
-  { count: 25, totalPrice: 27500 }
-];
-
-const SPLIT_PACKAGE_OPTIONS = [
-  { count: 1, pricePerPerson: 1200 },
-  { count: 5, pricePerPerson: 5500 },
-  { count: 10, pricePerPerson: 10000 },
-  { count: 25, pricePerPerson: 24000 }
-];
-
-const packageOptions = {
-  personal: PERSONAL_PACKAGE_OPTIONS,
-  split: SPLIT_PACKAGE_OPTIONS
+const TRAINER_CATEGORIES = ["I", "II", "III"];
+const PACKAGE_COUNTS = [1, 5, 10, 25];
+const DEFAULT_TRAINER_CATEGORY = "I";
+const DEFAULT_COACH_PERCENT = 50;
+const DEFAULT_USER_SETTINGS = {
+  trainerCategory: DEFAULT_TRAINER_CATEGORY,
+  coachPercent: DEFAULT_COACH_PERCENT
+};
+const CATEGORY_PRICE_TABLES = {
+  personal: {
+    I: { 1: 1500, 5: 6750, 10: 12000, 25: 27500 },
+    II: { 1: 2000, 5: 9000, 10: 17000, 25: 40000 },
+    III: { 1: 2500, 5: 11250, 10: 21000, 25: 50000 }
+  },
+  // Временные значения для II/III, обновим после получения вашей таблицы по сплитам.
+  split: {
+    I: { 1: 1200, 5: 5500, 10: 10000, 25: 24000 },
+    II: { 1: 1200, 5: 5500, 10: 10000, 25: 24000 },
+    III: { 1: 1200, 5: 5500, 10: 10000, 25: 24000 }
+  }
 };
 
 // Понедельник первым для удобного выбора в формах.
@@ -94,7 +98,8 @@ function bindTopNavigation() {
     "go-groups": "groups",
     "go-calendar": "calendar",
     "go-stats": "stats",
-    "go-salary": "salary"
+    "go-salary": "salary",
+    "go-settings": "settings"
   };
 
   Object.entries(navMap).forEach(([id, view]) => {
@@ -251,6 +256,77 @@ function setTheme(themeName) {
   state.theme = normalizedTheme;
   applyTheme(state.theme);
   saveState();
+  renderApp();
+}
+
+function setTrainerCategory(categoryValue) {
+  const ownerId = getCurrentUserId();
+  if (!ownerId) return;
+
+  const normalizedCategory = normalizeTrainerCategory(categoryValue);
+  const current = getUserSettings(ownerId);
+  if (current.trainerCategory === normalizedCategory) return;
+
+  setUserSettingsForUser(ownerId, {
+    trainerCategory: normalizedCategory
+  });
+  saveState({ dataChanged: true });
+  renderApp();
+}
+
+function setCoachPercent(percentValue) {
+  const ownerId = getCurrentUserId();
+  if (!ownerId) return;
+
+  const normalizedPercent = normalizeCoachPercent(percentValue);
+  const current = getUserSettings(ownerId);
+  if (current.coachPercent === normalizedPercent) return;
+
+  setUserSettingsForUser(ownerId, {
+    coachPercent: normalizedPercent
+  });
+  applyCoachPercentToActivePackages(ownerId, normalizedPercent);
+  refreshPlannedCoachIncomeForUser(ownerId);
+  saveState({ dataChanged: true });
+  renderApp();
+}
+
+function applyCoachPercentToActivePackages(ownerId, coachPercent) {
+  state.students.forEach((student) => {
+    if (student.ownerId !== ownerId || !student.activePackage) return;
+    student.activePackage.coachPercent = normalizeCoachPercent(coachPercent);
+  });
+}
+
+function refreshPlannedCoachIncomeForUser(ownerId) {
+  state.students.forEach((student) => {
+    if (student.ownerId !== ownerId) return;
+    const coachIncome = getCoachIncomePerSession(student.activePackage, student.trainingType);
+    student.sessions.forEach((session) => {
+      if (session.status !== "запланировано") return;
+      session.coachIncome = coachIncome;
+    });
+  });
+}
+
+async function syncCloudNow() {
+  if (!isAuthenticated()) {
+    return { ok: false, message: "Авторизуйтесь для синхронизации." };
+  }
+  if (!isCloudConfigured()) {
+    return { ok: false, message: "Облачная синхронизация не настроена." };
+  }
+
+  const pushed = await pushStateToCloud();
+  if (!pushed) {
+    return { ok: false, message: "Не удалось отправить изменения в облако." };
+  }
+
+  const user = getCurrentUser();
+  if (user) {
+    await pullStateFromCloudForUser(user);
+  }
+  return { ok: true, message: "Синхронизация завершена." };
 }
 
 function applyTheme(themeName) {
@@ -423,6 +499,7 @@ function buildCloudStatePayload() {
     students: getStudentsForUser(ownerId),
     groups: getGroupsForUser(ownerId),
     salaryClosures: getSalaryClosuresForUser(ownerId),
+    settings: getUserSettings(ownerId),
     syncMeta: {
       dataUpdatedAt
     }
@@ -455,6 +532,10 @@ function applyCloudStatePayload(payload, user) {
       Array.isArray(payload.salaryClosures) ? payload.salaryClosures : getSalaryClosuresForUser(ownerId),
       ownerId
     ),
+    settingsByUser: {
+      ...state.settingsByUser,
+      [ownerId]: normalizeUserSettings(payload.settings || state.settingsByUser?.[ownerId] || DEFAULT_USER_SETTINGS)
+    },
     users: state.users,
     auth: state.auth
   });
@@ -590,6 +671,8 @@ function renderApp() {
     renderStatistics(root, ctx);
   } else if (state.view === "salary") {
     renderSalary(root, ctx);
+  } else if (state.view === "settings") {
+    renderSettings(root, ctx);
   } else {
     renderHome(root, ctx);
   }
@@ -604,7 +687,8 @@ function markActiveNavButton() {
     groups: "go-groups",
     calendar: "go-calendar",
     stats: "go-stats",
-    salary: "go-salary"
+    salary: "go-salary",
+    settings: "go-settings"
   };
 
   Object.values(viewToButtonId).forEach((id) => {
@@ -633,11 +717,16 @@ function buildScopedStateForContext() {
 
 function buildContext() {
   const scopedState = buildScopedStateForContext();
+  const userSettings = getUserSettings();
+  const packageOptions = getPackageOptionsByCategory(userSettings.trainerCategory);
   return {
     state: scopedState,
     currentUser: getCurrentUser(),
+    userSettings,
+    trainerCategories: TRAINER_CATEGORIES,
     weekDays,
     packageOptions,
+    isCloudConfigured: isCloudConfigured(),
     getTodayISO,
     formatDate,
     dayLabel,
@@ -673,6 +762,9 @@ function buildContext() {
       exportBackupJSON,
       importBackupFromFile,
       setTheme,
+      setTrainerCategory,
+      setCoachPercent,
+      syncCloudNow,
       registerUser,
       loginUser,
       logoutUser
@@ -693,6 +785,7 @@ function createInitialState() {
     auth: {
       currentUserId: null
     },
+    settingsByUser: {},
     syncByUser: {},
     sync: {
       ...DEFAULT_SYNC_STATE
@@ -749,6 +842,10 @@ function normalizeState(input) {
   next.salaryMonth = ensureMonthISO(next.salaryMonth, defaults.salaryMonth);
   next.users = Array.isArray(next.users) ? next.users.map(normalizeUser).filter(Boolean) : [];
   next.auth = normalizeAuth(next.auth, next.users);
+  next.settingsByUser = normalizeSettingsByUser(next.settingsByUser);
+  if (next.auth.currentUserId && !next.settingsByUser[next.auth.currentUserId]) {
+    next.settingsByUser[next.auth.currentUserId] = { ...DEFAULT_USER_SETTINGS };
+  }
   const legacySync = normalizeSyncState(next.sync);
   next.syncByUser = normalizeSyncByUser(next.syncByUser);
   if (next.auth.currentUserId && !next.syncByUser[next.auth.currentUserId]) {
@@ -810,13 +907,27 @@ function normalizeSyncByUser(rawSyncByUser) {
   return normalized;
 }
 
+function normalizeSettingsByUser(rawSettingsByUser) {
+  if (!rawSettingsByUser || typeof rawSettingsByUser !== "object" || Array.isArray(rawSettingsByUser)) {
+    return {};
+  }
+
+  const normalized = {};
+  Object.entries(rawSettingsByUser).forEach(([userId, rawSettings]) => {
+    const normalizedUserId = String(userId || "").trim();
+    if (!normalizedUserId) return;
+    normalized[normalizedUserId] = normalizeUserSettings(rawSettings);
+  });
+  return normalized;
+}
+
 function getMigrationFallbackOwnerId(users) {
   if (!Array.isArray(users) || !users.length) return null;
   return users[0]?.id || null;
 }
 
 function isAllowedView(value) {
-  return ["home", "students", "groups", "calendar", "stats", "salary"].includes(value);
+  return ["home", "students", "groups", "calendar", "stats", "salary", "settings"].includes(value);
 }
 
 function normalizeOwnerId(ownerId, fallbackOwnerId = null) {
@@ -974,13 +1085,19 @@ function normalizePackageCount(value) {
 }
 
 function normalizeActivePackage(rawPackage, trainingType, countFallback) {
-  const packageFromOption = getPackageByCount(trainingType, countFallback) || getPackageByCount(trainingType, 10);
+  const fallbackCategory = normalizeTrainerCategory(rawPackage?.trainerCategory);
+  const packageFromOption = getPackageByCount(trainingType, countFallback, fallbackCategory)
+    || getPackageByCount(trainingType, 10, fallbackCategory);
   const purchasedAt = rawPackage?.purchasedAt || new Date().toISOString();
+  const trainerCategory = normalizeTrainerCategory(rawPackage?.trainerCategory || fallbackCategory);
+  const coachPercent = normalizeCoachPercent(rawPackage?.coachPercent);
 
   if (trainingType === "split") {
     return {
       count: Number(rawPackage?.count || packageFromOption.count),
       pricePerPerson: Number(rawPackage?.pricePerPerson || packageFromOption.pricePerPerson),
+      trainerCategory,
+      coachPercent,
       purchasedAt
     };
   }
@@ -988,6 +1105,8 @@ function normalizeActivePackage(rawPackage, trainingType, countFallback) {
   return {
     count: Number(rawPackage?.count || packageFromOption.count),
     totalPrice: Number(rawPackage?.totalPrice || packageFromOption.totalPrice),
+    trainerCategory,
+    coachPercent,
     purchasedAt
   };
 }
@@ -1001,12 +1120,16 @@ function normalizePackagesHistory(history, activePackage, trainingType) {
         return {
           count: Number(item.count || activePackage.count),
           pricePerPerson: Number(item.pricePerPerson || activePackage.pricePerPerson),
+          trainerCategory: normalizeTrainerCategory(item.trainerCategory || activePackage.trainerCategory),
+          coachPercent: normalizeCoachPercent(item.coachPercent ?? activePackage.coachPercent),
           purchasedAt: item.purchasedAt || new Date().toISOString()
         };
       }
       return {
         count: Number(item.count || activePackage.count),
         totalPrice: Number(item.totalPrice || activePackage.totalPrice),
+        trainerCategory: normalizeTrainerCategory(item.trainerCategory || activePackage.trainerCategory),
+        coachPercent: normalizeCoachPercent(item.coachPercent ?? activePackage.coachPercent),
         purchasedAt: item.purchasedAt || new Date().toISOString()
       };
     })
@@ -1058,20 +1181,83 @@ function isValidISODateTime(value) {
   return Number.isFinite(Date.parse(String(value)));
 }
 
-function getPackageByCount(type, count) {
-  const list = packageOptions[type] || [];
+function normalizeTrainerCategory(value) {
+  const normalized = String(value || "").trim().toUpperCase();
+  return TRAINER_CATEGORIES.includes(normalized) ? normalized : DEFAULT_TRAINER_CATEGORY;
+}
+
+function normalizeCoachPercent(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return DEFAULT_COACH_PERCENT;
+  return Math.max(1, Math.min(100, Math.round(numeric)));
+}
+
+function normalizeUserSettings(rawSettings) {
+  return {
+    trainerCategory: normalizeTrainerCategory(rawSettings?.trainerCategory),
+    coachPercent: normalizeCoachPercent(rawSettings?.coachPercent)
+  };
+}
+
+function getUserSettings(userId = getCurrentUserId()) {
+  if (!userId) return { ...DEFAULT_USER_SETTINGS };
+  state.settingsByUser = normalizeSettingsByUser(state.settingsByUser);
+  return normalizeUserSettings(state.settingsByUser[userId] || DEFAULT_USER_SETTINGS);
+}
+
+function setUserSettingsForUser(userId, patch) {
+  if (!userId) return;
+  const current = getUserSettings(userId);
+  const next = normalizeUserSettings({
+    ...current,
+    ...(patch || {})
+  });
+  state.settingsByUser = normalizeSettingsByUser(state.settingsByUser);
+  state.settingsByUser[userId] = next;
+}
+
+function getPriceForPackage(type, category, count) {
+  const normalizedType = type === "split" ? "split" : "personal";
+  const normalizedCategory = normalizeTrainerCategory(category);
+  const numericCount = Number(count);
+  const categoryTable = CATEGORY_PRICE_TABLES[normalizedType]?.[normalizedCategory] || {};
+  const price = Number(categoryTable[numericCount]);
+  if (Number.isFinite(price) && price > 0) return price;
+  return null;
+}
+
+function getPackageOptionsByCategory(category) {
+  const normalizedCategory = normalizeTrainerCategory(category);
+  const personal = PACKAGE_COUNTS.map((count) => ({
+    count,
+    totalPrice: getPriceForPackage("personal", normalizedCategory, count) || 0
+  }));
+  const split = PACKAGE_COUNTS.map((count) => ({
+    count,
+    pricePerPerson: getPriceForPackage("split", normalizedCategory, count) || 0
+  }));
+  return { personal, split };
+}
+
+function getPackageByCount(type, count, category = DEFAULT_TRAINER_CATEGORY) {
+  const list = type === "split"
+    ? getPackageOptionsByCategory(category).split
+    : getPackageOptionsByCategory(category).personal;
   const numericCount = Number(count);
   return list.find((item) => Number(item.count) === numericCount) || null;
 }
 
 function buildPackage(type, count) {
-  const option = getPackageByCount(type, count);
+  const settings = getUserSettings();
+  const option = getPackageByCount(type, count, settings.trainerCategory);
   if (!option) return null;
 
   if (type === "split") {
     return {
       count: option.count,
       pricePerPerson: option.pricePerPerson,
+      trainerCategory: settings.trainerCategory,
+      coachPercent: settings.coachPercent,
       purchasedAt: new Date().toISOString()
     };
   }
@@ -1079,6 +1265,8 @@ function buildPackage(type, count) {
   return {
     count: option.count,
     totalPrice: option.totalPrice,
+    trainerCategory: settings.trainerCategory,
+    coachPercent: settings.coachPercent,
     purchasedAt: new Date().toISOString()
   };
 }
@@ -1087,14 +1275,15 @@ function getCoachIncomePerSession(activePackage, trainingType) {
   if (!activePackage) return 0;
 
   const count = Number(activePackage.count) || 1;
+  const coachFactor = normalizeCoachPercent(activePackage.coachPercent) / 100;
   if (trainingType === "split") {
     const perPerson = Number(activePackage.pricePerPerson || 0);
     const totalPerSession = (perPerson * 2) / count;
-    return roundMoney(totalPerSession * 0.5);
+    return roundMoney(totalPerSession * coachFactor);
   }
 
   const totalPrice = Number(activePackage.totalPrice || 0);
-  return roundMoney((totalPrice / count) * 0.5);
+  return roundMoney((totalPrice / count) * coachFactor);
 }
 
 function roundMoney(value) {
@@ -1280,6 +1469,9 @@ function buildEmptyAccountData() {
     students: [],
     groups: [],
     salaryClosures: [],
+    settings: {
+      ...DEFAULT_USER_SETTINGS
+    },
     syncMeta: {
       dataUpdatedAt: nowISO
     }
@@ -1288,6 +1480,7 @@ function buildEmptyAccountData() {
 
 function claimLegacyOrphanDataForUser(userId) {
   if (!userId) return;
+  setUserSettingsForUser(userId, getUserSettings(userId));
 
   const hasOwnedRows = state.students.some((row) => row.ownerId)
     || state.groups.some((row) => row.ownerId)
@@ -2284,6 +2477,9 @@ function exportBackupJSON() {
       ...state,
       users: [currentUser],
       auth: { currentUserId: currentUser.id },
+      settingsByUser: {
+        [currentUser.id]: getUserSettings(currentUser.id)
+      },
       students: getStudentsForUser(currentUser.id),
       groups: getGroupsForUser(currentUser.id),
       salaryClosures: getSalaryClosuresForUser(currentUser.id)
@@ -2323,6 +2519,15 @@ function importBackupFromFile(file) {
             pickOwnedRowsFromImport(normalizedIncoming.salaryClosures, ownerId),
             ownerId
           ),
+          settingsByUser: {
+            ...state.settingsByUser,
+            [ownerId]: normalizeUserSettings(
+              normalizedIncoming.settingsByUser?.[ownerId]
+                || normalizedIncoming.settings
+                || state.settingsByUser?.[ownerId]
+                || DEFAULT_USER_SETTINGS
+            )
+          },
           users: state.users,
           auth: state.auth
         });

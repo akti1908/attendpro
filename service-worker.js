@@ -1,4 +1,4 @@
-const CACHE_NAME = "attendpro-cache-v3";
+const CACHE_NAME = "attendpro-cache-v4";
 
 const APP_SHELL = [
   "./",
@@ -19,7 +19,8 @@ const APP_SHELL = [
   "./components/GroupCard.js",
   "./components/Session.js",
   "./components/Statistics.js",
-  "./components/Salary.js"
+  "./components/Salary.js",
+  "./components/Settings.js"
 ];
 
 self.addEventListener("install", (event) => {
