@@ -1,8 +1,13 @@
-﻿// Карточка персональной/сплит тренировки.
+const MINI_GROUP_MIN_PARTICIPANTS = 3;
+const MINI_GROUP_MAX_PARTICIPANTS = 5;
+
+// Карточка персональной/сплит/мини-группы тренировки.
 export function renderStudentCard(student, ctx) {
   const packageOptions = ctx.packageOptions[student.trainingType] || [];
   const packageSelect = renderPackageOptions(packageOptions, student.totalTrainings, student.trainingType);
   const packageHistory = renderPackageHistory(student, ctx);
+  const isSplit = student.trainingType === "split";
+  const isMiniGroup = student.trainingType === "mini_group";
 
   const upcomingSessions = student.sessions
     .slice()
@@ -12,21 +17,30 @@ export function renderStudentCard(student, ctx) {
     .join("");
 
   const editDayInputs = renderDayCheckboxes(ctx.weekDays, student.scheduleDays, `student-edit-day-${student.id}`);
-  const typeLabel = student.trainingType === "split" ? "Сплит" : "Персональная";
-  const participantsLabel = student.trainingType === "split"
-    ? `${student.participants[0]} + ${student.participants[1]}`
-    : student.participants[0];
+  const typeLabel = isSplit ? "Сплит" : isMiniGroup ? "Мини-группа" : "Персональная";
+  const participantsLabel = isSplit
+    ? `${student.participants[0] || ""} + ${student.participants[1] || ""}`
+    : isMiniGroup
+      ? student.participants.join(", ")
+      : student.participants[0] || "";
+
   const safeName = escapeHtml(student.name);
   const safeParticipantsLabel = escapeHtml(participantsLabel);
-  const activePackagePrice = student.trainingType === "split"
+  const activePackagePrice = (isSplit || isMiniGroup)
     ? `${formatMoney(student.activePackage?.pricePerPerson || 0)} сом/чел`
     : `${formatMoney(student.activePackage?.totalPrice || 0)} сом`;
+
   const activePackageCategory = String(student.activePackage?.trainerCategory || "I");
   const activeCoachPercent = Number(student.activePackage?.coachPercent || 50);
   const selectedHour = Number(String(student.time || "00:00").slice(0, 2));
+  const miniMembersValue = escapeAttr((student.participants || []).join(", "));
+  const primaryFieldValue = isMiniGroup
+    ? (student.name || "")
+    : (student.participants[0] || student.name || "");
+  const miniParticipantsCount = Number(student.activePackage?.participantsCount || student.participants.length || 0);
 
   return `
-    <article class="card card-item" data-student-card="${student.id}">
+    <article class="card card-item" data-student-card="${student.id}" data-training-type="${student.trainingType}">
       <div class="card-head">
         <h3>${safeName}</h3>
         <button class="btn small-btn" type="button" data-action="toggle-student-edit" data-student-id="${student.id}">Редактировать</button>
@@ -36,6 +50,7 @@ export function renderStudentCard(student, ctx) {
       <p class="muted">Участники: ${safeParticipantsLabel}</p>
       <p class="muted">Осталось: ${student.remainingTrainings} / ${student.totalTrainings}</p>
       <p class="muted">Текущий пакет: ${student.totalTrainings} тренировок / ${activePackagePrice} / Категория ${activePackageCategory}</p>
+      ${isMiniGroup ? `<p class="muted">Размер мини-группы в пакете: ${miniParticipantsCount} чел.</p>` : ""}
       <p class="muted">Доля тренера в пакете: ${activeCoachPercent}%</p>
       <p class="muted">Продления пакетов: ${Math.max(0, (student.packagesHistory || []).length - 1)}</p>
       <p class="muted">Дни: ${student.scheduleDays.map((day) => ctx.dayLabel(day)).join(", ")} | Время: ${student.time}</p>
@@ -49,9 +64,17 @@ export function renderStudentCard(student, ctx) {
 
       <div class="card-edit-panel is-hidden" data-student-edit-panel="${student.id}">
         <div class="form-row">
-          <input data-student-field="primary-name" type="text" value="${escapeAttr(student.participants[0] || "")}" placeholder="Имя ученика" />
-          ${student.trainingType === "split"
+          <input
+            data-student-field="primary-name"
+            type="text"
+            value="${escapeAttr(primaryFieldValue)}"
+            placeholder="${isMiniGroup ? "Название мини-группы (необязательно)" : "Имя ученика"}"
+          />
+          ${isSplit
             ? `<input data-student-field="secondary-name" type="text" value="${escapeAttr(student.participants[1] || "")}" placeholder="Имя второго участника" />`
+            : ""}
+          ${isMiniGroup
+            ? `<input data-student-field="mini-members" type="text" value="${miniMembersValue}" placeholder="Участники мини-группы через запятую (3-5)" />`
             : ""}
           <select data-student-field="hour">${renderHourOptions(selectedHour)}</select>
         </div>
@@ -77,7 +100,7 @@ export function renderStudentCard(student, ctx) {
   `;
 }
 
-// Экран управления карточками персональных и сплит тренировок.
+// Экран управления карточками персональных/сплит/мини-групп тренировок.
 export function renderStudentsManager(root, ctx) {
   root.innerHTML = `
     <section class="grid grid-2">
@@ -88,9 +111,11 @@ export function renderStudentsManager(root, ctx) {
             <select id="training-type" name="trainingType" required>
               <option value="personal">Персональная</option>
               <option value="split">Сплит (2 человека)</option>
+              <option value="mini_group">Мини-группа (3-5 человек)</option>
             </select>
-            <input required name="primaryName" placeholder="Имя ученика" />
+            <input id="primary-name" required name="primaryName" placeholder="Имя ученика" />
             <input id="secondary-name" name="secondaryName" placeholder="Имя второго участника (для сплита)" disabled />
+            <input id="mini-members" name="miniMembers" placeholder="Участники мини-группы через запятую (3-5)" disabled />
             <select id="package-select" name="packageCount" required>
               ${renderPackageOptions(ctx.packageOptions.personal, 10, "personal")}
             </select>
@@ -111,13 +136,32 @@ export function renderStudentsManager(root, ctx) {
 
   const typeSelect = root.querySelector("#training-type");
   const packageSelect = root.querySelector("#package-select");
+  const primaryName = root.querySelector("#primary-name");
   const secondName = root.querySelector("#secondary-name");
+  const miniMembers = root.querySelector("#mini-members");
 
   const syncFormByType = () => {
-    const type = typeSelect.value === "split" ? "split" : "personal";
+    const type = String(typeSelect.value || "personal");
+
     secondName.disabled = type !== "split";
     secondName.required = type === "split";
     if (type !== "split") secondName.value = "";
+
+    miniMembers.disabled = type !== "mini_group";
+    miniMembers.required = type === "mini_group";
+    if (type !== "mini_group") miniMembers.value = "";
+
+    if (type === "mini_group") {
+      primaryName.required = false;
+      primaryName.placeholder = "Название мини-группы (необязательно)";
+    } else if (type === "split") {
+      primaryName.required = true;
+      primaryName.placeholder = "Имя первого участника";
+    } else {
+      primaryName.required = true;
+      primaryName.placeholder = "Имя ученика";
+    }
+
     packageSelect.innerHTML = renderPackageOptions(ctx.packageOptions[type], 10, type);
   };
 
@@ -128,22 +172,32 @@ export function renderStudentsManager(root, ctx) {
     event.preventDefault();
 
     const formData = new FormData(event.currentTarget);
+    const trainingType = String(formData.get("trainingType") || "personal");
     const scheduleDays = [...root.querySelectorAll('input[name="student-day"]:checked')].map((item) => Number(item.value));
+    const miniNames = parseParticipantsInput(formData.get("miniMembers"));
 
     if (!scheduleDays.length) {
       alert("Выберите хотя бы один день недели.");
       return;
     }
 
-    if (formData.get("trainingType") === "split" && !String(formData.get("secondaryName") || "").trim()) {
+    if (trainingType === "split" && !String(formData.get("secondaryName") || "").trim()) {
       alert("Для сплита нужно указать второго участника.");
       return;
     }
 
+    if (trainingType === "mini_group") {
+      if (miniNames.length < MINI_GROUP_MIN_PARTICIPANTS || miniNames.length > MINI_GROUP_MAX_PARTICIPANTS) {
+        alert("В мини-группе должно быть от 3 до 5 учеников.");
+        return;
+      }
+    }
+
     ctx.actions.addStudent({
-      trainingType: formData.get("trainingType"),
+      trainingType,
       primaryName: formData.get("primaryName"),
       secondaryName: formData.get("secondaryName"),
+      memberNames: miniNames,
       packageCount: Number(formData.get("packageCount")),
       scheduleDays,
       time: hourToTimeString(formData.get("hour"))
@@ -186,14 +240,16 @@ export function renderStudentsManager(root, ctx) {
       const panel = card?.querySelector("[data-student-edit-panel]");
       if (!card || !panel) return;
 
-      const primaryName = String(panel.querySelector('[data-student-field="primary-name"]')?.value || "").trim();
-      const secondaryName = String(panel.querySelector('[data-student-field="secondary-name"]')?.value || "").trim();
+      const primaryNameValue = String(panel.querySelector('[data-student-field="primary-name"]')?.value || "").trim();
+      const secondaryNameValue = String(panel.querySelector('[data-student-field="secondary-name"]')?.value || "").trim();
+      const miniMembersValue = parseParticipantsInput(panel.querySelector('[data-student-field="mini-members"]')?.value || "");
       const hour = String(panel.querySelector('[data-student-field="hour"]')?.value || "0");
       const scheduleDays = [...panel.querySelectorAll('input[data-day-input="1"]:checked')].map((item) => Number(item.value));
 
       ctx.actions.updateStudentCardData(button.dataset.studentId, {
-        primaryName,
-        secondaryName,
+        primaryName: primaryNameValue,
+        secondaryName: secondaryNameValue,
+        memberNames: miniMembersValue,
         scheduleDays,
         time: hourToTimeString(hour)
       });
@@ -252,10 +308,11 @@ function renderDayCheckboxes(weekDays, selected = [], inputName = "student-day")
 }
 
 function renderPackageOptions(options, selectedCount, type) {
-  return options
+  return (options || [])
     .map((item) => {
       const selected = Number(selectedCount) === Number(item.count) ? "selected" : "";
-      const label = type === "split"
+      const isPerPerson = type === "split" || type === "mini_group";
+      const label = isPerPerson
         ? `${item.count} тренировок — ${formatMoney(item.pricePerPerson)} сом/чел`
         : `${item.count} тренировок — ${formatMoney(item.totalPrice)} сом`;
 
@@ -276,13 +333,17 @@ function renderPackageHistory(student, ctx) {
   return history
     .map((item) => {
       const dateText = item.purchasedAt ? ctx.formatDate(item.purchasedAt.slice(0, 10)) : "-";
-      const priceText = student.trainingType === "split"
+      const isPerPerson = student.trainingType === "split" || student.trainingType === "mini_group";
+      const priceText = isPerPerson
         ? `${formatMoney(item.pricePerPerson || 0)} сом/чел`
         : `${formatMoney(item.totalPrice || 0)} сом`;
       const packageCategory = String(item.trainerCategory || "I");
       const coachPercent = Number(item.coachPercent || 50);
+      const participantsPart = student.trainingType === "mini_group"
+        ? `, Участников: ${Number(item.participantsCount || student.participants.length || 0)}`
+        : "";
 
-      return `<li>${dateText}: ${item.count} тренировок - ${priceText}, Категория ${packageCategory}, Доля ${coachPercent}%</li>`;
+      return `<li>${dateText}: ${item.count} тренировок - ${priceText}, Категория ${packageCategory}, Доля ${coachPercent}%${participantsPart}</li>`;
     })
     .join("");
 }
@@ -294,6 +355,13 @@ function renderHourOptions(selectedHour = 0) {
     const selected = Number(selectedHour) === hour ? "selected" : "";
     return `<option value="${value}" ${selected}>${label}</option>`;
   }).join("");
+}
+
+function parseParticipantsInput(value) {
+  return String(value || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function hourToTimeString(hourValue) {

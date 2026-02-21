@@ -1,10 +1,14 @@
-﻿// Отрисовка отдельной тренировки в журнале.
+// Отрисовка отдельной тренировки в журнале.
 export function renderSession(entry, options = {}) {
   const editable = options.editable !== false;
 
   if (entry.type === "personal") {
     const session = entry.data;
-    const typeBadge = entry.trainingType === "split" ? "Сплит" : "Персональная";
+    const typeBadge = entry.trainingType === "split"
+      ? "Сплит"
+      : entry.trainingType === "mini_group"
+        ? "Мини-группа"
+        : "Персональная";
     const isMarked = session.status === "пришел" || session.status === "не пришел";
     const safeStudentName = escapeHtml(entry.studentName);
     const safeStatus = escapeHtml(session.status);

@@ -1,7 +1,8 @@
-﻿// Раздел расчета заработной платы за выбранный месяц.
+// Раздел расчета заработной платы за выбранный месяц.
 export function renderSalary(root, ctx) {
   const monthValue = ctx.state.salaryMonth;
   const report = ctx.getSalaryReport(monthValue);
+  const miniGroup = report.miniGroup || { sessions: 0, income: 0 };
 
   root.innerHTML = `
     <section class="card">
@@ -26,8 +27,10 @@ export function renderSalary(root, ctx) {
       <div class="stats-grid mt-8">
         <div class="stat-card"><span class="muted">Персональных занятий</span><strong>${report.personal.sessions}</strong></div>
         <div class="stat-card"><span class="muted">Сплит-занятий</span><strong>${report.split.sessions}</strong></div>
+        <div class="stat-card"><span class="muted">Мини-группа занятий</span><strong>${miniGroup.sessions}</strong></div>
         <div class="stat-card"><span class="muted">ЗП с персональных</span><strong>${formatMoney(report.personal.income)} сом</strong></div>
         <div class="stat-card"><span class="muted">ЗП со сплитов</span><strong>${formatMoney(report.split.income)} сом</strong></div>
+        <div class="stat-card"><span class="muted">ЗП с мини-групп</span><strong>${formatMoney(miniGroup.income)} сом</strong></div>
         <div class="stat-card"><span class="muted">Всего занятий</span><strong>${report.totalSessions}</strong></div>
         <div class="stat-card"><span class="muted">Итоговая ЗП</span><strong>${formatMoney(report.totalIncome)} сом</strong></div>
       </div>
@@ -68,7 +71,11 @@ export function renderSalary(root, ctx) {
 }
 
 function renderSalaryRow(row) {
-  const label = row.type === "split" ? "Сплит" : "Персональная";
+  const label = row.type === "split"
+    ? "Сплит"
+    : row.type === "mini_group"
+      ? "Мини-группа"
+      : "Персональная";
 
   return `
     <article class="card stat-result card-item">

@@ -56,8 +56,13 @@ export function renderSettings(root, ctx) {
         <p class="muted small-note">Прайсы сплитов для категорий II/III временно базовые, обновим после получения вашей таблицы.</p>
       </div>
 
+      <div class="price-block section-gap">
+        <h3>Мини-группа (за 1 человека)</h3>
+        ${renderPriceTable(ctx.packageOptions.mini_group, "сом/чел")}
+        <p class="muted small-note">Мини-группа: от 3 до 5 участников в карточке.</p>
+      </div>
+
       <p class="muted small-note">При смене категории цены применяются к новым пакетам. История уже купленных пакетов не меняется.</p>
-      <p class="muted small-note">Текущий шаг: для персональных пакетов категории I/II/III уже активированы.</p>
     </section>
   `;
 

@@ -1,4 +1,4 @@
-﻿// Раздел статистики + поиск по карточкам.
+// Раздел статистики + поиск по карточкам.
 export function renderStatistics(root, ctx) {
   const stats = ctx.getStatistics();
 
@@ -76,6 +76,8 @@ function renderStatCard(item, ctx) {
     ? "Персональная"
     : item.type === "split"
       ? "Сплит"
+      : item.type === "mini_group"
+        ? "Мини-группа"
       : "Групповая";
 
   const purchasedLine = item.type === "group"

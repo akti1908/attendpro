@@ -1,4 +1,4 @@
-﻿import { renderHome } from "./components/Home.js";
+import { renderHome } from "./components/Home.js";
 import { renderCalendar } from "./components/Calendar.js";
 import { renderStudentsManager } from "./components/StudentCard.js";
 import { renderGroupsManager } from "./components/GroupCard.js";
@@ -57,8 +57,15 @@ const CATEGORY_PRICE_TABLES = {
     I: { 1: 1200, 5: 5500, 10: 10000, 25: 24000 },
     II: { 1: 1200, 5: 5500, 10: 10000, 25: 24000 },
     III: { 1: 1200, 5: 5500, 10: 10000, 25: 24000 }
+  },
+  mini_group: {
+    I: { 1: 1100, 5: 4900, 10: 9500, 25: 22000 },
+    II: { 1: 1600, 5: 7800, 10: 14000, 25: 32000 },
+    III: { 1: 2000, 5: 8500, 10: 15000, 25: 40000 }
   }
 };
+const MINI_GROUP_MIN_PARTICIPANTS = 3;
+const MINI_GROUP_MAX_PARTICIPANTS = 5;
 
 // Понедельник первым для удобного выбора в формах.
 const weekDays = [
@@ -935,8 +942,14 @@ function normalizeOwnerId(ownerId, fallbackOwnerId = null) {
   return value || null;
 }
 
+function normalizeTrainingType(value) {
+  if (value === "split") return "split";
+  if (value === "mini_group") return "mini_group";
+  return "personal";
+}
+
 function normalizeStudent(rawStudent, fallbackOwnerId = null) {
-  const trainingType = rawStudent.trainingType === "split" ? "split" : "personal";
+  const trainingType = normalizeTrainingType(rawStudent.trainingType);
   const participants = normalizeParticipants(rawStudent, trainingType);
   const packageCount = normalizePackageCount(rawStudent.totalTrainings);
   const activePackage = normalizeActivePackage(rawStudent.activePackage, trainingType, packageCount);
@@ -957,6 +970,17 @@ function normalizeStudent(rawStudent, fallbackOwnerId = null) {
     sessions: Array.isArray(rawStudent.sessions) ? rawStudent.sessions.map((session) => normalizeStudentSession(session, activePackage, trainingType)) : [],
     createdAt: rawStudent.createdAt || new Date().toISOString()
   };
+
+  if (trainingType === "mini_group" && student.activePackage) {
+    const normalizedParticipantsCount = Math.max(
+      MINI_GROUP_MIN_PARTICIPANTS,
+      Math.min(
+        MINI_GROUP_MAX_PARTICIPANTS,
+        Number(student.activePackage.participantsCount || participants.length || MINI_GROUP_MIN_PARTICIPANTS)
+      )
+    );
+    student.activePackage.participantsCount = normalizedParticipantsCount;
+  }
 
   return student;
 }
@@ -1067,6 +1091,11 @@ function normalizeParticipants(rawStudent, trainingType) {
       .map((item) => String(normalizeLegacyText(item || "")).trim())
       .filter(Boolean);
     if (trainingType === "split") return cleaned.slice(0, 2);
+    if (trainingType === "mini_group") {
+      const mini = cleaned.slice(0, MINI_GROUP_MAX_PARTICIPANTS);
+      if (mini.length >= MINI_GROUP_MIN_PARTICIPANTS) return mini;
+      return ["Участник 1", "Участник 2", "Участник 3"];
+    }
     return [cleaned[0] || String(normalizeLegacyText(rawStudent.name || "Ученик")).trim()];
   }
 
@@ -1075,7 +1104,24 @@ function normalizeParticipants(rawStudent, trainingType) {
     const [first, second] = studentName.split("/").map((item) => item.trim()).filter(Boolean);
     return [first || "Участник 1", second || "Участник 2"];
   }
+
+  if (trainingType === "mini_group") {
+    const parsed = studentName.split("/").map((item) => item.trim()).filter(Boolean).slice(0, MINI_GROUP_MAX_PARTICIPANTS);
+    if (parsed.length >= MINI_GROUP_MIN_PARTICIPANTS) return parsed;
+    return ["Участник 1", "Участник 2", "Участник 3"];
+  }
   return [studentName];
+}
+
+function sanitizeParticipantNames(values) {
+  return (Array.isArray(values) ? values : [])
+    .map((item) => String(item || "").trim())
+    .filter(Boolean);
+}
+
+function normalizeMiniGroupNames(values) {
+  const names = sanitizeParticipantNames(values);
+  return names.slice(0, MINI_GROUP_MAX_PARTICIPANTS);
 }
 
 function normalizePackageCount(value) {
@@ -1092,10 +1138,18 @@ function normalizeActivePackage(rawPackage, trainingType, countFallback) {
   const trainerCategory = normalizeTrainerCategory(rawPackage?.trainerCategory || fallbackCategory);
   const coachPercent = normalizeCoachPercent(rawPackage?.coachPercent);
 
-  if (trainingType === "split") {
+  if (trainingType === "split" || trainingType === "mini_group") {
+    const participantsCount = trainingType === "mini_group"
+      ? Math.max(
+        MINI_GROUP_MIN_PARTICIPANTS,
+        Math.min(MINI_GROUP_MAX_PARTICIPANTS, Number(rawPackage?.participantsCount || MINI_GROUP_MIN_PARTICIPANTS))
+      )
+      : 2;
+
     return {
       count: Number(rawPackage?.count || packageFromOption.count),
       pricePerPerson: Number(rawPackage?.pricePerPerson || packageFromOption.pricePerPerson),
+      participantsCount,
       trainerCategory,
       coachPercent,
       purchasedAt
@@ -1116,10 +1170,21 @@ function normalizePackagesHistory(history, activePackage, trainingType) {
 
   const normalized = rows
     .map((item) => {
-      if (trainingType === "split") {
+      if (trainingType === "split" || trainingType === "mini_group") {
+        const participantsCount = trainingType === "mini_group"
+          ? Math.max(
+            MINI_GROUP_MIN_PARTICIPANTS,
+            Math.min(
+              MINI_GROUP_MAX_PARTICIPANTS,
+              Number(item.participantsCount || activePackage.participantsCount || MINI_GROUP_MIN_PARTICIPANTS)
+            )
+          )
+          : 2;
+
         return {
           count: Number(item.count || activePackage.count),
           pricePerPerson: Number(item.pricePerPerson || activePackage.pricePerPerson),
+          participantsCount,
           trainerCategory: normalizeTrainerCategory(item.trainerCategory || activePackage.trainerCategory),
           coachPercent: normalizeCoachPercent(item.coachPercent ?? activePackage.coachPercent),
           purchasedAt: item.purchasedAt || new Date().toISOString()
@@ -1217,7 +1282,7 @@ function setUserSettingsForUser(userId, patch) {
 }
 
 function getPriceForPackage(type, category, count) {
-  const normalizedType = type === "split" ? "split" : "personal";
+  const normalizedType = type === "split" || type === "mini_group" ? type : "personal";
   const normalizedCategory = normalizeTrainerCategory(category);
   const numericCount = Number(count);
   const categoryTable = CATEGORY_PRICE_TABLES[normalizedType]?.[normalizedCategory] || {};
@@ -1236,18 +1301,25 @@ function getPackageOptionsByCategory(category) {
     count,
     pricePerPerson: getPriceForPackage("split", normalizedCategory, count) || 0
   }));
-  return { personal, split };
+  const mini_group = PACKAGE_COUNTS.map((count) => ({
+    count,
+    pricePerPerson: getPriceForPackage("mini_group", normalizedCategory, count) || 0
+  }));
+  return { personal, split, mini_group };
 }
 
 function getPackageByCount(type, count, category = DEFAULT_TRAINER_CATEGORY) {
+  const options = getPackageOptionsByCategory(category);
   const list = type === "split"
-    ? getPackageOptionsByCategory(category).split
-    : getPackageOptionsByCategory(category).personal;
+    ? options.split
+    : type === "mini_group"
+      ? options.mini_group
+      : options.personal;
   const numericCount = Number(count);
   return list.find((item) => Number(item.count) === numericCount) || null;
 }
 
-function buildPackage(type, count) {
+function buildPackage(type, count, participantsCount = null) {
   const settings = getUserSettings();
   const option = getPackageByCount(type, count, settings.trainerCategory);
   if (!option) return null;
@@ -1256,6 +1328,21 @@ function buildPackage(type, count) {
     return {
       count: option.count,
       pricePerPerson: option.pricePerPerson,
+      trainerCategory: settings.trainerCategory,
+      coachPercent: settings.coachPercent,
+      purchasedAt: new Date().toISOString()
+    };
+  }
+
+  if (type === "mini_group") {
+    const normalizedCount = Math.max(
+      MINI_GROUP_MIN_PARTICIPANTS,
+      Math.min(MINI_GROUP_MAX_PARTICIPANTS, Number(participantsCount || MINI_GROUP_MIN_PARTICIPANTS))
+    );
+    return {
+      count: option.count,
+      pricePerPerson: option.pricePerPerson,
+      participantsCount: normalizedCount,
       trainerCategory: settings.trainerCategory,
       coachPercent: settings.coachPercent,
       purchasedAt: new Date().toISOString()
@@ -1279,6 +1366,16 @@ function getCoachIncomePerSession(activePackage, trainingType) {
   if (trainingType === "split") {
     const perPerson = Number(activePackage.pricePerPerson || 0);
     const totalPerSession = (perPerson * 2) / count;
+    return roundMoney(totalPerSession * coachFactor);
+  }
+
+  if (trainingType === "mini_group") {
+    const perPerson = Number(activePackage.pricePerPerson || 0);
+    const participantsCount = Math.max(
+      MINI_GROUP_MIN_PARTICIPANTS,
+      Math.min(MINI_GROUP_MAX_PARTICIPANTS, Number(activePackage.participantsCount || MINI_GROUP_MIN_PARTICIPANTS))
+    );
+    const totalPerSession = (perPerson * participantsCount) / count;
     return roundMoney(totalPerSession * coachFactor);
   }
 
@@ -1743,14 +1840,15 @@ function addStudent(payload) {
   const ownerId = getCurrentUserId();
   if (!ownerId) return;
 
-  const trainingType = payload.trainingType === "split" ? "split" : "personal";
+  const trainingType = normalizeTrainingType(payload.trainingType);
   const primaryName = String(payload.primaryName || "").trim();
   const secondaryName = String(payload.secondaryName || "").trim();
+  const miniMemberNames = normalizeMiniGroupNames(payload.memberNames);
   const packageCount = Number(payload.packageCount);
   const scheduleDays = sanitizeWeekDays(payload.scheduleDays);
   const time = sanitizeHourTime(payload.time);
 
-  if (!primaryName) {
+  if ((trainingType === "personal" || trainingType === "split") && !primaryName) {
     alert("Введите имя ученика.");
     return;
   }
@@ -1760,22 +1858,38 @@ function addStudent(payload) {
     return;
   }
 
+  if (trainingType === "mini_group") {
+    if (miniMemberNames.length < MINI_GROUP_MIN_PARTICIPANTS || miniMemberNames.length > MINI_GROUP_MAX_PARTICIPANTS) {
+      alert("В мини-группе должно быть от 3 до 5 учеников.");
+      return;
+    }
+  }
+
   if (!scheduleDays.length) {
     alert("Выберите хотя бы один день недели.");
     return;
   }
 
-  const activePackage = buildPackage(trainingType, packageCount);
+  const activePackage = buildPackage(trainingType, packageCount, miniMemberNames.length);
   if (!activePackage) {
     alert("Выбранный пакет недоступен.");
     return;
   }
 
-  const participants = trainingType === "split" ? [primaryName, secondaryName] : [primaryName];
+  const participants = trainingType === "split"
+    ? [primaryName, secondaryName]
+    : trainingType === "mini_group"
+      ? miniMemberNames
+      : [primaryName];
+  const cardName = trainingType === "split"
+    ? `${primaryName} / ${secondaryName}`
+    : trainingType === "mini_group"
+      ? (primaryName || `Мини-группа (${participants.length})`)
+      : primaryName;
   const student = {
     id: createId("student"),
     ownerId,
-    name: trainingType === "split" ? `${primaryName} / ${secondaryName}` : primaryName,
+    name: cardName,
     trainingType,
     participants,
     scheduleDays,
@@ -1799,7 +1913,8 @@ function addStudentPackage(studentId, packageCount) {
   const student = state.students.find((item) => item.id === studentId && item.ownerId === ownerId);
   if (!student) return;
 
-  const newPackage = buildPackage(student.trainingType, Number(packageCount));
+  const participantsCount = student.trainingType === "mini_group" ? student.participants.length : null;
+  const newPackage = buildPackage(student.trainingType, Number(packageCount), participantsCount);
   if (!newPackage) {
     alert("Пакет не найден.");
     return;
@@ -1840,10 +1955,11 @@ function updateStudentCardData(studentId, payload) {
 
   const primaryName = String(payload?.primaryName || "").trim();
   const secondaryName = String(payload?.secondaryName || "").trim();
+  const miniMemberNames = normalizeMiniGroupNames(payload?.memberNames);
   const scheduleDays = sanitizeWeekDays(payload?.scheduleDays);
   const time = sanitizeHourTime(payload?.time || student.time);
 
-  if (!primaryName) {
+  if ((student.trainingType === "personal" || student.trainingType === "split") && !primaryName) {
     alert("Введите имя ученика.");
     return;
   }
@@ -1858,9 +1974,22 @@ function updateStudentCardData(studentId, payload) {
     return;
   }
 
+  if (student.trainingType === "mini_group") {
+    if (miniMemberNames.length < MINI_GROUP_MIN_PARTICIPANTS || miniMemberNames.length > MINI_GROUP_MAX_PARTICIPANTS) {
+      alert("В мини-группе должно быть от 3 до 5 учеников.");
+      return;
+    }
+  }
+
   if (student.trainingType === "split") {
     student.participants = [primaryName, secondaryName];
     student.name = `${primaryName} / ${secondaryName}`;
+  } else if (student.trainingType === "mini_group") {
+    student.participants = miniMemberNames;
+    student.name = primaryName || `Мини-группа (${miniMemberNames.length})`;
+    if (student.activePackage) {
+      student.activePackage.participantsCount = miniMemberNames.length;
+    }
   } else {
     student.participants = [primaryName];
     student.name = primaryName;
@@ -2169,15 +2298,20 @@ function reopenSalaryMonth(monthISO) {
 
 function exportSalaryMonthCSV(monthISO) {
   const report = getSalaryReport(monthISO);
+  const miniGroup = report.miniGroup || { sessions: 0, income: 0 };
   const lines = [
-    "Период;Персональные занятия;Сплит занятия;ЗП персональные;ЗП сплит;Всего занятий;Итоговая ЗП",
-    `${report.monthISO};${report.personal.sessions};${report.split.sessions};${roundMoney(report.personal.income)};${roundMoney(report.split.income)};${report.totalSessions};${roundMoney(report.totalIncome)}`,
+    "Период;Персональные занятия;Сплит занятия;Мини-группа занятия;ЗП персональные;ЗП сплит;ЗП мини-группа;Всего занятий;Итоговая ЗП",
+    `${report.monthISO};${report.personal.sessions};${report.split.sessions};${miniGroup.sessions};${roundMoney(report.personal.income)};${roundMoney(report.split.income)};${roundMoney(miniGroup.income)};${report.totalSessions};${roundMoney(report.totalIncome)}`,
     "",
     "Карточка;Тип;Посещений;ЗП"
   ];
 
   report.rows.forEach((row) => {
-    const typeLabel = row.type === "split" ? "Сплит" : "Персональная";
+    const typeLabel = row.type === "split"
+      ? "Сплит"
+      : row.type === "mini_group"
+        ? "Мини-группа"
+        : "Персональная";
     lines.push(`${escapeCsv(row.name)};${typeLabel};${row.attended};${roundMoney(row.income)}`);
   });
 
@@ -2226,9 +2360,14 @@ function getSessionsForDate(dateISO) {
 function getSessionsByDate(dateISO) {
   return getSessionsForDate(dateISO).map((item) => {
     if (item.type === "personal") {
+      const labelPrefix = item.trainingType === "split"
+        ? "Сплит: "
+        : item.trainingType === "mini_group"
+          ? "Мини-группа: "
+          : "";
       return {
         type: "personal",
-        label: item.trainingType === "split" ? `Сплит: ${item.studentName}` : item.studentName,
+        label: `${labelPrefix}${item.studentName}`,
         status: item.data.status
       };
     }
@@ -2254,8 +2393,10 @@ function buildSalaryReport(monthISO) {
   const rows = [];
   let personalSessions = 0;
   let splitSessions = 0;
+  let miniGroupSessions = 0;
   let personalIncome = 0;
   let splitIncome = 0;
+  let miniGroupIncome = 0;
 
   students.forEach((student) => {
     const attendedSessions = student.sessions.filter((session) => {
@@ -2278,6 +2419,9 @@ function buildSalaryReport(monthISO) {
     if (student.trainingType === "split") {
       splitSessions += attended;
       splitIncome += income;
+    } else if (student.trainingType === "mini_group") {
+      miniGroupSessions += attended;
+      miniGroupIncome += income;
     } else {
       personalSessions += attended;
       personalIncome += income;
@@ -2286,8 +2430,8 @@ function buildSalaryReport(monthISO) {
 
   rows.sort((a, b) => b.income - a.income);
 
-  const totalSessions = personalSessions + splitSessions;
-  const totalIncome = roundMoney(personalIncome + splitIncome);
+  const totalSessions = personalSessions + splitSessions + miniGroupSessions;
+  const totalIncome = roundMoney(personalIncome + splitIncome + miniGroupIncome);
 
   return {
     monthISO: month,
@@ -2300,6 +2444,10 @@ function buildSalaryReport(monthISO) {
     split: {
       sessions: splitSessions,
       income: roundMoney(splitIncome)
+    },
+    miniGroup: {
+      sessions: miniGroupSessions,
+      income: roundMoney(miniGroupIncome)
     },
     totalSessions,
     totalIncome,
@@ -2445,7 +2593,13 @@ function exportStatisticsCSV() {
   ];
 
   stats.cards.forEach((card) => {
-    const typeLabel = card.type === "group" ? "Групповая" : card.type === "split" ? "Сплит" : "Персональная";
+    const typeLabel = card.type === "group"
+      ? "Групповая"
+      : card.type === "split"
+        ? "Сплит"
+        : card.type === "mini_group"
+          ? "Мини-группа"
+          : "Персональная";
     lines.push([
       escapeCsv(card.name),
       typeLabel,
