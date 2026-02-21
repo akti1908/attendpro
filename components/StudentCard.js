@@ -26,6 +26,7 @@ export function renderStudentCard(student, ctx) {
 
   const safeName = escapeHtml(student.name);
   const safeParticipantsLabel = escapeHtml(participantsLabel);
+  const searchText = `${student.name} ${participantsLabel} ${typeLabel}`.toLowerCase();
   const activePackagePrice = (isSplit || isMiniGroup)
     ? `${formatMoney(student.activePackage?.pricePerPerson || 0)} сом/чел`
     : `${formatMoney(student.activePackage?.totalPrice || 0)} сом`;
@@ -39,7 +40,12 @@ export function renderStudentCard(student, ctx) {
   const miniParticipantsCount = Number(student.activePackage?.participantsCount || student.participants.length || 0);
 
   return `
-    <article class="card card-item" data-student-card="${student.id}" data-training-type="${student.trainingType}">
+    <article
+      class="card card-item"
+      data-student-card="${student.id}"
+      data-training-type="${student.trainingType}"
+      data-search-text="${escapeAttr(searchText)}"
+    >
       <div class="card-head">
         <h3>${safeName}</h3>
         <button class="btn small-btn" type="button" data-action="toggle-student-edit" data-student-id="${student.id}">Редактировать</button>
@@ -127,6 +133,8 @@ export function renderStudentsManager(root, ctx) {
 
       <div class="card">
         <h2 class="section-title">Карточки</h2>
+        <input id="students-search" type="text" placeholder="Поиск по карточкам: имя, участники, формат" />
+        <p id="students-search-empty" class="muted mt-8 is-hidden">Ничего не найдено.</p>
         <div id="students-list" class="list-scroll"></div>
       </div>
     </section>
@@ -206,6 +214,33 @@ export function renderStudentsManager(root, ctx) {
   studentsList.innerHTML = ctx.state.students.length
     ? ctx.state.students.map((student) => renderStudentCard(student, ctx)).join("")
     : `<p class="muted">Карточек пока нет.</p>`;
+
+  const studentsSearchInput = root.querySelector("#students-search");
+  const studentsSearchEmpty = root.querySelector("#students-search-empty");
+  const applyStudentsFilter = () => {
+    const query = String(studentsSearchInput?.value || "").trim().toLowerCase();
+    const cards = [...studentsList.querySelectorAll("[data-student-card]")];
+    if (!cards.length) {
+      studentsSearchEmpty?.classList.add("is-hidden");
+      return;
+    }
+
+    let visibleCount = 0;
+    cards.forEach((card) => {
+      const searchText = String(card.dataset.searchText || "").toLowerCase();
+      const matched = !query || searchText.includes(query);
+      card.classList.toggle("is-hidden", !matched);
+      if (matched) visibleCount += 1;
+    });
+
+    if (studentsSearchEmpty) {
+      const shouldShowEmpty = Boolean(query) && visibleCount === 0;
+      studentsSearchEmpty.classList.toggle("is-hidden", !shouldShowEmpty);
+    }
+  };
+
+  studentsSearchInput?.addEventListener("input", applyStudentsFilter);
+  applyStudentsFilter();
 
   studentsList.querySelectorAll("[data-action='toggle-student-edit']").forEach((button) => {
     button.addEventListener("click", () => {
