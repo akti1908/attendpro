@@ -3,12 +3,19 @@ export function renderSettings(root, ctx) {
   const settings = ctx.userSettings;
   const currentTheme = ctx.state.theme === "dark" ? "Темная" : "Светлая";
   const nextTheme = ctx.state.theme === "dark" ? "light" : "dark";
+  const currentEmail = String(ctx.currentUser?.email || "-");
 
   root.innerHTML = `
     <section class="card">
       <h2 class="section-title">Настройки</h2>
 
       <div class="settings-grid">
+        <div class="setting-item">
+          <span class="muted">Текущий аккаунт</span>
+          <strong>${escapeHtml(currentEmail)}</strong>
+          <button id="settings-logout" class="btn small-btn" type="button">Выйти</button>
+        </div>
+
         <div class="setting-item">
           <span class="muted">Тема приложения</span>
           <button id="settings-theme-toggle" class="btn small-btn" type="button">
@@ -24,12 +31,6 @@ export function renderSettings(root, ctx) {
               return `<option value="${category}" ${selected}>Категория ${category}</option>`;
             }).join("")}
           </select>
-        </div>
-
-        <div class="setting-item">
-          <label for="coach-percent" class="muted">Доля тренера (%)</label>
-          <input id="coach-percent" type="number" min="1" max="100" value="${settings.coachPercent}" />
-          <p class="muted small-note">Используется для новых пакетов и будущих занятий текущих пакетов.</p>
         </div>
 
         <div class="setting-item">
@@ -74,8 +75,8 @@ export function renderSettings(root, ctx) {
     ctx.actions.setTrainerCategory(event.currentTarget.value);
   });
 
-  root.querySelector("#coach-percent")?.addEventListener("change", (event) => {
-    ctx.actions.setCoachPercent(event.currentTarget.value);
+  root.querySelector("#settings-logout")?.addEventListener("click", () => {
+    ctx.actions.logoutUser();
   });
 
   root.querySelector("#settings-sync-now")?.addEventListener("click", async (event) => {
@@ -135,4 +136,11 @@ function getPriceValue(item) {
 
 function formatMoney(value) {
   return Math.round(Number(value || 0)).toLocaleString("ru-RU");
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
 }

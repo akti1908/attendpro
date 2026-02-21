@@ -101,27 +101,10 @@ body.is-auth-required .nav-actions {
   justify-self: center;
 }
 
-.topbar-controls {
+.topbar-spacer {
   grid-column: 3;
   justify-self: end;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.theme-toggle-btn {
-  min-width: 42px;
-  width: 42px;
-  padding: 0;
-  border-radius: 999px;
-  position: relative;
-  transition: transform 0.28s ease, background 0.2s ease;
-}
-
-.logout-head-btn {
-  min-height: 42px;
-  padding: 0 10px;
-  border-radius: 999px;
+  min-width: 86px;
 }
 
 .theme-toggle-icon {
@@ -412,8 +395,41 @@ input[type="radio"] {
 
 .date-toolbar {
   display: grid;
-  grid-template-columns: 1fr 170px 1fr auto;
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
   gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.day-arrow-btn {
+  min-width: 44px;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 999px;
+  font-size: 1rem;
+}
+
+.date-center-btn {
+  width: 100%;
+  min-height: 44px;
+  text-align: center;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+.date-picker-hidden {
+  position: absolute;
+  left: -9999px;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+}
+
+.home-edit-row {
+  display: flex;
+  justify-content: flex-end;
   margin-bottom: 8px;
 }
 
@@ -715,8 +731,8 @@ input[type="radio"] {
     white-space: normal;
   }
 
-  .topbar-controls {
-    gap: 5px;
+  .topbar-spacer {
+    min-width: 70px;
   }
 }
 
@@ -726,7 +742,7 @@ input[type="radio"] {
   }
 
   .date-toolbar {
-    grid-template-columns: 1fr;
+    grid-template-columns: 40px minmax(0, 1fr) 40px;
   }
 
   .calendar-toolbar h2 {
@@ -754,6 +770,17 @@ input[type="radio"] {
   }
 
   .small-btn {
+    min-height: 40px;
+    font-size: 0.9rem;
+  }
+
+  .day-arrow-btn {
+    min-width: 40px;
+    width: 40px;
+    height: 40px;
+  }
+
+  .date-center-btn {
     min-height: 40px;
     font-size: 0.9rem;
   }

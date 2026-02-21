@@ -8,16 +8,20 @@ export function renderHome(root, ctx) {
   const editAllowed = ctx.actions.isEditingAllowedForSelectedDate();
   const showEditToggle = selectedDate !== todayISO;
   const sessions = ctx.getSessionsForDate(selectedDate);
+  const selectedDateLabel = ctx.formatDate(selectedDate);
 
   root.innerHTML = `
     <section class="card">
       <h2 class="section-title">Журнал посещаемости</h2>
       <div class="date-toolbar">
-        <button id="prev-day" class="btn small-btn">Предыдущий день</button>
-        <input id="selected-date" type="date" value="${selectedDate}" />
-        <button id="next-day" class="btn small-btn">Следующий день</button>
-        ${showEditToggle
-          ? `
+        <button id="prev-day" class="btn small-btn day-arrow-btn" aria-label="Предыдущий день" title="Предыдущий день">◀</button>
+        <button id="selected-date-display" class="btn small-btn date-center-btn" type="button">${selectedDateLabel}</button>
+        <button id="next-day" class="btn small-btn day-arrow-btn" aria-label="Следующий день" title="Следующий день">▶</button>
+      </div>
+      <input id="selected-date" class="date-picker-hidden" type="date" value="${selectedDate}" />
+      ${showEditToggle
+        ? `
+          <div class="home-edit-row">
             <button id="toggle-edit" class="btn small-btn ${ctx.state.editMode ? "btn-active" : ""}" ${lockedByMonth ? "disabled" : ""}>
               ${lockedByMonth
                 ? "Месяц закрыт"
@@ -25,10 +29,9 @@ export function renderHome(root, ctx) {
                   ? "Редактирование: ВКЛ"
                   : "Редактировать"}
             </button>
-          `
-          : ""}
-      </div>
-      <p class="muted">${ctx.formatDate(selectedDate)}</p>
+          </div>
+        `
+        : ""}
       ${lockedByMonth ? `<p class="locked-note">Дата относится к закрытому месяцу. Изменения заблокированы.</p>` : ""}
       <div id="day-list" class="list-scroll"></div>
     </section>
@@ -45,6 +48,18 @@ export function renderHome(root, ctx) {
 
   root.querySelector("#next-day").addEventListener("click", () => {
     ctx.actions.shiftSelectedDate(1);
+  });
+
+  const datePicker = root.querySelector("#selected-date");
+  const dateDisplay = root.querySelector("#selected-date-display");
+  dateDisplay?.addEventListener("click", () => {
+    if (!datePicker) return;
+    if (typeof datePicker.showPicker === "function") {
+      datePicker.showPicker();
+      return;
+    }
+    datePicker.focus();
+    datePicker.click();
   });
 
   root.querySelector("#selected-date").addEventListener("change", (event) => {

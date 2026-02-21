@@ -31,7 +31,6 @@ export function renderStudentCard(student, ctx) {
     : `${formatMoney(student.activePackage?.totalPrice || 0)} сом`;
 
   const activePackageCategory = String(student.activePackage?.trainerCategory || "I");
-  const activeCoachPercent = Number(student.activePackage?.coachPercent || 50);
   const selectedHour = Number(String(student.time || "00:00").slice(0, 2));
   const miniMembersValue = escapeAttr((student.participants || []).join(", "));
   const primaryFieldValue = isMiniGroup
@@ -51,7 +50,6 @@ export function renderStudentCard(student, ctx) {
       <p class="muted">Осталось: ${student.remainingTrainings} / ${student.totalTrainings}</p>
       <p class="muted">Текущий пакет: ${student.totalTrainings} тренировок / ${activePackagePrice} / Категория ${activePackageCategory}</p>
       ${isMiniGroup ? `<p class="muted">Размер мини-группы в пакете: ${miniParticipantsCount} чел.</p>` : ""}
-      <p class="muted">Доля тренера в пакете: ${activeCoachPercent}%</p>
       <p class="muted">Продления пакетов: ${Math.max(0, (student.packagesHistory || []).length - 1)}</p>
       <p class="muted">Дни: ${student.scheduleDays.map((day) => ctx.dayLabel(day)).join(", ")} | Время: ${student.time}</p>
 
@@ -338,12 +336,11 @@ function renderPackageHistory(student, ctx) {
         ? `${formatMoney(item.pricePerPerson || 0)} сом/чел`
         : `${formatMoney(item.totalPrice || 0)} сом`;
       const packageCategory = String(item.trainerCategory || "I");
-      const coachPercent = Number(item.coachPercent || 50);
       const participantsPart = student.trainingType === "mini_group"
         ? `, Участников: ${Number(item.participantsCount || student.participants.length || 0)}`
         : "";
 
-      return `<li>${dateText}: ${item.count} тренировок - ${priceText}, Категория ${packageCategory}, Доля ${coachPercent}%${participantsPart}</li>`;
+      return `<li>${dateText}: ${item.count} тренировок - ${priceText}, Категория ${packageCategory}${participantsPart}</li>`;
     })
     .join("");
 }

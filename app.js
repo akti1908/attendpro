@@ -91,7 +91,6 @@ const root = document.getElementById("app");
 bindTopbarMenu();
 bindTopNavigation();
 bindThemeControl();
-bindLogoutButton();
 bindSyncLifecycleHandlers();
 applyTheme(state.theme);
 renderApp();
@@ -231,25 +230,10 @@ function bindThemeControl() {
   });
 }
 
-function bindLogoutButton() {
-  const logoutButton = document.getElementById("logout-btn");
-  if (!logoutButton) return;
-
-  logoutButton.addEventListener("click", () => {
-    closeTopbarMenu();
-    logoutUser();
-  });
-}
-
 function refreshTopbarAuthState() {
   const isLoggedIn = isAuthenticated();
-  const logoutButton = document.getElementById("logout-btn");
 
   document.body.classList.toggle("is-auth-required", !isLoggedIn);
-
-  if (logoutButton) {
-    logoutButton.classList.toggle("is-hidden", !isLoggedIn);
-  }
 
   if (!isLoggedIn) {
     setTopbarMenuOpen(false);
@@ -279,41 +263,6 @@ function setTrainerCategory(categoryValue) {
   });
   saveState({ dataChanged: true });
   renderApp();
-}
-
-function setCoachPercent(percentValue) {
-  const ownerId = getCurrentUserId();
-  if (!ownerId) return;
-
-  const normalizedPercent = normalizeCoachPercent(percentValue);
-  const current = getUserSettings(ownerId);
-  if (current.coachPercent === normalizedPercent) return;
-
-  setUserSettingsForUser(ownerId, {
-    coachPercent: normalizedPercent
-  });
-  applyCoachPercentToActivePackages(ownerId, normalizedPercent);
-  refreshPlannedCoachIncomeForUser(ownerId);
-  saveState({ dataChanged: true });
-  renderApp();
-}
-
-function applyCoachPercentToActivePackages(ownerId, coachPercent) {
-  state.students.forEach((student) => {
-    if (student.ownerId !== ownerId || !student.activePackage) return;
-    student.activePackage.coachPercent = normalizeCoachPercent(coachPercent);
-  });
-}
-
-function refreshPlannedCoachIncomeForUser(ownerId) {
-  state.students.forEach((student) => {
-    if (student.ownerId !== ownerId) return;
-    const coachIncome = getCoachIncomePerSession(student.activePackage, student.trainingType);
-    student.sessions.forEach((session) => {
-      if (session.status !== "запланировано") return;
-      session.coachIncome = coachIncome;
-    });
-  });
 }
 
 async function syncCloudNow() {
@@ -770,7 +719,6 @@ function buildContext() {
       importBackupFromFile,
       setTheme,
       setTrainerCategory,
-      setCoachPercent,
       syncCloudNow,
       registerUser,
       loginUser,
