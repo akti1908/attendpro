@@ -72,7 +72,7 @@ function renderSalaryRow(row) {
 
   return `
     <article class="card stat-result card-item">
-      <h3>${row.name}</h3>
+      <h3>${escapeHtml(row.name)}</h3>
       <p><span class="muted">Тип:</span> ${label}</p>
       <p><span class="muted">Занятий в месяце:</span> ${row.attended}</p>
       <p><span class="muted">ЗП:</span> ${formatMoney(row.income)} сом</p>
@@ -82,4 +82,11 @@ function renderSalaryRow(row) {
 
 function formatMoney(value) {
   return Math.round(Number(value || 0)).toLocaleString("ru-RU");
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
 }

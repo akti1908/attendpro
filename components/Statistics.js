@@ -96,7 +96,7 @@ function renderStatCard(item, ctx) {
 
   return `
     <article class="card stat-result card-item">
-      <h3>${item.name}</h3>
+      <h3>${escapeHtml(item.name)}</h3>
       <p><span class="muted">Тип:</span> ${typeLabel}</p>
       <p><span class="muted">Посещений:</span> ${item.visits}</p>
       <p><span class="muted">Пропусков:</span> ${item.misses}</p>
@@ -111,4 +111,11 @@ function renderStatCard(item, ctx) {
 
 function formatMoney(value) {
   return Math.round(Number(value || 0)).toLocaleString("ru-RU");
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
 }

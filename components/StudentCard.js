@@ -8,7 +8,7 @@ export function renderStudentCard(student, ctx) {
     .slice()
     .sort((a, b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`))
     .slice(0, 8)
-    .map((session) => `<li>${ctx.formatDate(session.date)} в ${session.time} - <strong>${session.status}</strong></li>`)
+    .map((session) => `<li>${ctx.formatDate(session.date)} в ${session.time} - <strong>${escapeHtml(session.status)}</strong></li>`)
     .join("");
 
   const editDayInputs = renderDayCheckboxes(ctx.weekDays, student.scheduleDays, `student-edit-day-${student.id}`);
@@ -16,6 +16,8 @@ export function renderStudentCard(student, ctx) {
   const participantsLabel = student.trainingType === "split"
     ? `${student.participants[0]} + ${student.participants[1]}`
     : student.participants[0];
+  const safeName = escapeHtml(student.name);
+  const safeParticipantsLabel = escapeHtml(participantsLabel);
   const activePackagePrice = student.trainingType === "split"
     ? `${formatMoney(student.activePackage?.pricePerPerson || 0)} сом/чел`
     : `${formatMoney(student.activePackage?.totalPrice || 0)} сом`;
@@ -24,12 +26,12 @@ export function renderStudentCard(student, ctx) {
   return `
     <article class="card card-item" data-student-card="${student.id}">
       <div class="card-head">
-        <h3>${student.name}</h3>
+        <h3>${safeName}</h3>
         <button class="btn small-btn" type="button" data-action="toggle-student-edit" data-student-id="${student.id}">Редактировать</button>
       </div>
 
       <p class="muted">Формат: ${typeLabel}</p>
-      <p class="muted">Участники: ${participantsLabel}</p>
+      <p class="muted">Участники: ${safeParticipantsLabel}</p>
       <p class="muted">Осталось: ${student.remainingTrainings} / ${student.totalTrainings}</p>
       <p class="muted">Текущий пакет: ${student.totalTrainings} тренировок / ${activePackagePrice}</p>
       <p class="muted">Продления пакетов: ${Math.max(0, (student.packagesHistory || []).length - 1)}</p>
@@ -302,6 +304,13 @@ function escapeAttr(value) {
   return String(value || "")
     .replaceAll("&", "&amp;")
     .replaceAll('"', "&quot;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;");
 }

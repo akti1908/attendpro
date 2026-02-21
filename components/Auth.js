@@ -40,14 +40,18 @@ export function renderAuth(root, ctx) {
   const registerForm = root.querySelector("#auth-register-form");
   const message = root.querySelector("#auth-message");
 
+  const clearMessage = () => {
+    message.textContent = "";
+    message.classList.remove("auth-error", "auth-success");
+  };
+
   const setMode = (mode) => {
     const isLogin = mode === "login";
     loginForm.classList.toggle("is-hidden", !isLogin);
     registerForm.classList.toggle("is-hidden", isLogin);
     loginTab.classList.toggle("btn-active", isLogin);
     registerTab.classList.toggle("btn-active", !isLogin);
-    message.textContent = "";
-    message.classList.remove("auth-error", "auth-success");
+    clearMessage();
   };
 
   loginTab.addEventListener("click", () => setMode("login"));
@@ -55,6 +59,7 @@ export function renderAuth(root, ctx) {
 
   loginForm.addEventListener("submit", async (event) => {
     event.preventDefault();
+    clearMessage();
     const formData = new FormData(event.currentTarget);
     const result = await ctx.actions.loginUser({
       email: formData.get("email"),
@@ -68,6 +73,7 @@ export function renderAuth(root, ctx) {
 
   registerForm.addEventListener("submit", async (event) => {
     event.preventDefault();
+    clearMessage();
     const formData = new FormData(event.currentTarget);
     const result = await ctx.actions.registerUser({
       name: formData.get("name"),

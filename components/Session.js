@@ -6,6 +6,8 @@ export function renderSession(entry, options = {}) {
     const session = entry.data;
     const typeBadge = entry.trainingType === "split" ? "Сплит" : "Персональная";
     const isMarked = session.status === "пришел" || session.status === "не пришел";
+    const safeStudentName = escapeHtml(entry.studentName);
+    const safeStatus = escapeHtml(session.status);
 
     const statusClass = session.status === "пришел"
       ? "status-ok"
@@ -27,7 +29,7 @@ export function renderSession(entry, options = {}) {
     return `
       <article class="session personal ${isMarked ? "session-marked" : ""}" data-session-card="${session.id}" data-marked="${isMarked ? "1" : "0"}" data-status="${session.status}">
         <div class="session-head">
-          <div><strong>${session.time}</strong> - ${entry.studentName}</div>
+          <div><strong>${session.time}</strong> - ${safeStudentName}</div>
           <button class="btn small-btn" ${(isMarked && editable) ? "" : "disabled"} data-action="toggle-session-edit" data-session-id="${session.id}">Редактировать</button>
         </div>
 
@@ -35,7 +37,7 @@ export function renderSession(entry, options = {}) {
 
         <div class="status-line">
           <span class="muted">Статус:</span>
-          <span class="status-pill ${statusClass}">${session.status}</span>
+          <span class="status-pill ${statusClass}">${safeStatus}</span>
         </div>
 
         ${isMarked ? `<div class="marked-note">Отметка уже произведена</div>` : ""}
@@ -53,10 +55,12 @@ export function renderSession(entry, options = {}) {
   const attendanceControls = entry.students
     .map((student) => {
       const currentStatus = session.attendance[student.id] || "-";
+      const safeStudentName = escapeHtml(student.name);
+      const safeCurrentStatus = escapeHtml(currentStatus);
 
       return `
         <div class="group-student-row">
-          <strong>${student.name}</strong> <span class="muted">(${currentStatus})</span>
+          <strong>${safeStudentName}</strong> <span class="muted">(${safeCurrentStatus})</span>
 
           <div class="session-actions">
             <label class="group-check">
@@ -77,7 +81,7 @@ export function renderSession(entry, options = {}) {
   return `
     <article class="session group ${hasAnyMarked ? "session-marked" : ""}" data-session-card="${session.id}" data-marked="${hasAnyMarked ? "1" : "0"}" data-status="group">
       <div class="session-head">
-        <div><strong>${session.time}</strong> - ${entry.groupName}</div>
+        <div><strong>${session.time}</strong> - ${escapeHtml(entry.groupName)}</div>
         <button class="btn small-btn" ${(hasAnyMarked && editable) ? "" : "disabled"} data-action="toggle-session-edit" data-session-id="${session.id}">Редактировать</button>
       </div>
       ${hasAnyMarked ? `<div class="marked-note">Есть проставленные отметки</div>` : ""}
@@ -86,4 +90,11 @@ export function renderSession(entry, options = {}) {
       </div>
     </article>
   `;
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
 }

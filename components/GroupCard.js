@@ -9,16 +9,18 @@ export function renderGroupCard(group, ctx) {
 
   const selectedHour = Number(String(group.time || "00:00").slice(0, 2));
   const dayInputs = renderDayCheckboxes(ctx.weekDays, group.scheduleDays, `group-edit-day-${group.id}`);
+  const safeGroupName = escapeHtml(group.name);
+  const safeMembers = group.students.map((student) => escapeHtml(student.name)).join(", ");
 
   return `
     <article class="card card-item" data-group-card="${group.id}">
       <div class="card-head">
-        <h3>${group.name}</h3>
+        <h3>${safeGroupName}</h3>
         <button class="btn small-btn" type="button" data-action="toggle-group-edit" data-group-id="${group.id}">Редактировать</button>
       </div>
 
       <p class="muted">Дни: ${group.scheduleDays.map((day) => ctx.dayLabel(day)).join(", ")} | Время: ${group.time}</p>
-      <p class="muted">Ученики: ${group.students.map((student) => student.name).join(", ")}</p>
+      <p class="muted">Ученики: ${safeMembers}</p>
 
       <div class="card-edit-panel is-hidden" data-group-edit-panel="${group.id}">
         <div class="form-row">
@@ -209,6 +211,13 @@ function escapeAttr(value) {
   return String(value || "")
     .replaceAll("&", "&amp;")
     .replaceAll('"', "&quot;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;");
 }

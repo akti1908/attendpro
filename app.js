@@ -11,6 +11,7 @@ const STORAGE_KEY = "attendpro_state_v4";
 const APP_VERSION = 5;
 const ALLOWED_THEMES = ["dark", "light"];
 const CLOUD_SYNC_DEBOUNCE_MS = 1200;
+const CLOUD_FETCH_TIMEOUT_MS = 15000;
 const MOBILE_LAYOUT_MAX_WIDTH = 980;
 const DEFAULT_SYNC_STATE = {
   pendingDataSync: false,
@@ -313,10 +314,23 @@ async function cloudFetch(path, options = {}) {
     throw new Error("Cloud sync is not configured.");
   }
 
-  const response = await fetch(cloudEndpoint(path), {
-    ...options,
-    headers: cloudHeaders(options.headers || {})
-  });
+  const controller = typeof AbortController === "function" ? new AbortController() : null;
+  const timeoutId = controller ? setTimeout(() => controller.abort(), CLOUD_FETCH_TIMEOUT_MS) : null;
+  let response;
+  try {
+    response = await fetch(cloudEndpoint(path), {
+      ...options,
+      headers: cloudHeaders(options.headers || {}),
+      ...(controller ? { signal: controller.signal } : {})
+    });
+  } catch (error) {
+    if (controller && error?.name === "AbortError") {
+      throw new Error("Cloud request timeout.");
+    }
+    throw error;
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
 
   if (!response.ok) {
     const details = await response.text().catch(() => "");
@@ -325,7 +339,11 @@ async function cloudFetch(path, options = {}) {
 
   const text = await response.text();
   if (!text) return null;
-  return JSON.parse(text);
+  try {
+    return JSON.parse(text);
+  } catch (_error) {
+    throw new Error("Cloud response is not valid JSON.");
+  }
 }
 
 async function cloudGetAccountByEmail(email) {
@@ -819,7 +837,7 @@ function normalizeStudent(rawStudent, fallbackOwnerId = null) {
     name: String(normalizeLegacyText(rawStudent.name || participants.join(" / "))).trim(),
     trainingType,
     participants,
-    scheduleDays: sanitizeWeekDays(rawStudent.scheduleDays),
+    scheduleDays: sanitizeWeekDays(rawStudent.scheduleDays, [1, 3, 5]),
     time: sanitizeHourTime(rawStudent.time),
     totalTrainings: packageCount,
     remainingTrainings: sanitizeRemaining(rawStudent.remainingTrainings, packageCount),
@@ -838,7 +856,7 @@ function normalizeGroup(rawGroup, fallbackOwnerId = null) {
     id: String(rawGroup.id || createId("group")),
     ownerId,
     name: String(normalizeLegacyText(rawGroup.name || "Группа")).trim(),
-    scheduleDays: sanitizeWeekDays(rawGroup.scheduleDays),
+    scheduleDays: sanitizeWeekDays(rawGroup.scheduleDays, [1, 3, 5]),
     time: sanitizeHourTime(rawGroup.time),
     students: Array.isArray(rawGroup.students)
       ? rawGroup.students.map((item) => ({
@@ -1000,13 +1018,13 @@ function normalizePackagesHistory(history, activePackage, trainingType) {
   return normalized;
 }
 
-function sanitizeWeekDays(days) {
-  if (!Array.isArray(days)) return [1, 3, 5];
+function sanitizeWeekDays(days, fallbackDays = []) {
+  if (!Array.isArray(days)) return [...fallbackDays];
 
   const valid = new Set(days.map((item) => Number(item)).filter((item) => Number.isInteger(item) && item >= 0 && item <= 6));
   const order = weekDays.map((day) => day.jsDay);
   const result = order.filter((day) => valid.has(day));
-  return result.length ? result : [1, 3, 5];
+  return result.length ? result : [...fallbackDays];
 }
 
 function sanitizeHourTime(value) {
@@ -1390,11 +1408,8 @@ async function loginUser(payload) {
       state.auth.currentUserId = user.id;
       claimLegacyOrphanDataForUser(user.id);
       state.view = "home";
-      if (remoteAccount.app_state) {
-        applyCloudStatePayload(remoteAccount.app_state, user);
-      }
-
       saveState({ skipCloud: true });
+      await pullStateFromCloudForUser(user);
       renderApp();
       return { ok: true };
     } catch (error) {
@@ -1552,6 +1567,11 @@ function addStudent(payload) {
     return;
   }
 
+  if (!scheduleDays.length) {
+    alert("Выберите хотя бы один день недели.");
+    return;
+  }
+
   const activePackage = buildPackage(trainingType, packageCount);
   if (!activePackage) {
     alert("Выбранный пакет недоступен.");
@@ -1608,11 +1628,12 @@ function updateStudentSchedule(studentId, scheduleDays) {
   const student = state.students.find((item) => item.id === studentId && item.ownerId === ownerId);
   if (!student) return;
 
-  student.scheduleDays = sanitizeWeekDays(scheduleDays);
-  if (!student.scheduleDays.length) {
+  const nextDays = sanitizeWeekDays(scheduleDays);
+  if (!nextDays.length) {
     alert("Выберите хотя бы один день недели.");
     return;
   }
+  student.scheduleDays = nextDays;
   rebuildStudentPlannedSessions(student, getTodayISO());
 
   saveState({ dataChanged: true });
@@ -1683,6 +1704,11 @@ function addGroup(payload) {
 
   if (!name) {
     alert("Введите название группы.");
+    return;
+  }
+
+  if (!scheduleDays.length) {
+    alert("Выберите хотя бы один день недели.");
     return;
   }
 
@@ -1865,6 +1891,10 @@ function reschedulePersonalSession(studentId, sessionId) {
 }
 
 function getNextAvailableDateForStudent(student, currentDateISO, sessionId) {
+  if (!Array.isArray(student.scheduleDays) || !student.scheduleDays.length) {
+    return addDaysISO(currentDateISO, 1);
+  }
+
   let cursor = addDaysISO(currentDateISO, 1);
   let guard = 0;
 
@@ -1892,6 +1922,8 @@ function setGroupAttendance(groupId, sessionId, studentId, status) {
 
   const session = group.sessions.find((item) => item.id === sessionId);
   if (!session) return;
+  const studentExists = group.students.some((student) => student.id === studentId);
+  if (!studentExists) return;
   if (isDateLocked(session.date)) {
     alert("Месяц этой даты уже закрыт. Редактирование недоступно.");
     return;
