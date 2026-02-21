@@ -12,6 +12,11 @@ const APP_VERSION = 5;
 const ALLOWED_THEMES = ["dark", "light"];
 const CLOUD_SYNC_DEBOUNCE_MS = 1200;
 const MOBILE_LAYOUT_MAX_WIDTH = 980;
+const DEFAULT_SYNC_STATE = {
+  pendingDataSync: false,
+  lastDataChangeAt: null,
+  lastCloudUpdateAt: null
+};
 const LEGACY_TEXT_MAP = {
   "РџРЅ": "Пн",
   "Р’С‚": "Вт",
@@ -75,6 +80,7 @@ bindTopbarMenu();
 bindTopNavigation();
 bindThemeControl();
 bindLogoutButton();
+bindSyncLifecycleHandlers();
 applyTheme(state.theme);
 renderApp();
 void bootstrapCloudSync();
@@ -148,6 +154,18 @@ function setTopbarMenuOpen(isOpen) {
 function closeTopbarMenu() {
   if (!isMobileLayout()) return;
   setTopbarMenuOpen(false);
+}
+
+function bindSyncLifecycleHandlers() {
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") {
+      void pushStateToCloud();
+    }
+  });
+
+  window.addEventListener("online", () => {
+    void bootstrapCloudSync();
+  });
 }
 
 function registerServiceWorker() {
@@ -377,6 +395,8 @@ async function cloudUpdateStateByAccount(user, appStatePayload) {
 
 function buildCloudStatePayload() {
   const ownerId = getCurrentUserId();
+  const sync = normalizeSyncState(state.sync);
+  const dataUpdatedAt = sync.lastDataChangeAt || new Date().toISOString();
   return {
     selectedDate: state.selectedDate,
     calendarDate: state.calendarDate,
@@ -384,7 +404,10 @@ function buildCloudStatePayload() {
     editMode: false,
     students: getStudentsForUser(ownerId),
     groups: getGroupsForUser(ownerId),
-    salaryClosures: getSalaryClosuresForUser(ownerId)
+    salaryClosures: getSalaryClosuresForUser(ownerId),
+    syncMeta: {
+      dataUpdatedAt
+    }
   };
 }
 
@@ -443,6 +466,13 @@ async function pushStateToCloud() {
   cloudSyncQueued = false;
   try {
     await cloudUpdateStateByAccount(user, buildCloudStatePayload());
+    state.sync = normalizeSyncState(state.sync);
+    state.sync.pendingDataSync = false;
+    state.sync.lastCloudUpdateAt = new Date().toISOString();
+    if (!state.sync.lastDataChangeAt) {
+      state.sync.lastDataChangeAt = state.sync.lastCloudUpdateAt;
+    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     return true;
   } catch (error) {
     console.error("Cloud sync error:", error);
@@ -460,8 +490,38 @@ async function pullStateFromCloudForUser(user) {
     const account = await cloudGetAccountByEmail(user.email);
     if (!account) return false;
     if (account.password_hash !== user.passwordHash) return false;
-    const changed = applyCloudStatePayload(account.app_state, user);
+
+    const payload = account.app_state;
+    const ownerId = user.id;
+    const localHasData = hasOwnedDataForUser(ownerId);
+    const remoteHasData = hasDataInPayload(payload);
+    const sync = normalizeSyncState(state.sync);
+    const remoteUpdatedAt = getRemotePayloadUpdatedAt(payload, account.updated_at);
+
+    // Если есть локальные несинхронизированные изменения, не перетираем их облаком.
+    if (sync.pendingDataSync && (localHasData || !remoteHasData)) {
+      await pushStateToCloud();
+      return false;
+    }
+
+    if (remoteUpdatedAt && sync.lastDataChangeAt && localHasData) {
+      if (toEpochMs(remoteUpdatedAt) <= toEpochMs(sync.lastDataChangeAt)) {
+        return false;
+      }
+    }
+
+    const changed = applyCloudStatePayload(payload, user);
     if (changed) {
+      state.sync = normalizeSyncState(state.sync);
+      state.sync.pendingDataSync = false;
+      if (remoteUpdatedAt) {
+        state.sync.lastCloudUpdateAt = remoteUpdatedAt;
+        state.sync.lastDataChangeAt = remoteUpdatedAt;
+      } else {
+        const nowISO = new Date().toISOString();
+        state.sync.lastCloudUpdateAt = nowISO;
+        state.sync.lastDataChangeAt = state.sync.lastDataChangeAt || nowISO;
+      }
       saveState({ skipCloud: true });
       renderApp();
     }
@@ -476,6 +536,13 @@ async function bootstrapCloudSync() {
   if (!isAuthenticated() || !isCloudConfigured()) return;
   const currentUser = getCurrentUser();
   if (!currentUser) return;
+
+  const sync = normalizeSyncState(state.sync);
+  if (sync.pendingDataSync) {
+    const pushed = await pushStateToCloud();
+    if (!pushed) return;
+  }
+
   await pullStateFromCloudForUser(currentUser);
 }
 
@@ -604,6 +671,9 @@ function createInitialState() {
     auth: {
       currentUserId: null
     },
+    sync: {
+      ...DEFAULT_SYNC_STATE
+    },
     editMode: false,
     students: [],
     groups: [],
@@ -624,8 +694,15 @@ function loadState() {
 }
 
 function saveState(options = {}) {
+  if (options.dataChanged) {
+    state.sync = normalizeSyncState(state.sync);
+    state.sync.pendingDataSync = true;
+    state.sync.lastDataChangeAt = new Date().toISOString();
+  }
+
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   if (options.skipCloud) return;
+  if (!options.dataChanged) return;
   scheduleCloudSync();
 }
 
@@ -643,6 +720,7 @@ function normalizeState(input) {
   next.salaryMonth = ensureMonthISO(next.salaryMonth, defaults.salaryMonth);
   next.users = Array.isArray(next.users) ? next.users.map(normalizeUser).filter(Boolean) : [];
   next.auth = normalizeAuth(next.auth, next.users);
+  next.sync = normalizeSyncState(next.sync);
   next.editMode = Boolean(next.editMode);
   const fallbackOwnerId = getMigrationFallbackOwnerId(next.users);
   next.students = Array.isArray(next.students)
@@ -667,6 +745,21 @@ function normalizeState(input) {
   });
 
   return next;
+}
+
+function normalizeSyncState(rawSync) {
+  if (!rawSync || typeof rawSync !== "object") {
+    return { ...DEFAULT_SYNC_STATE };
+  }
+
+  const lastDataChangeAt = isValidISODateTime(rawSync.lastDataChangeAt) ? rawSync.lastDataChangeAt : null;
+  const lastCloudUpdateAt = isValidISODateTime(rawSync.lastCloudUpdateAt) ? rawSync.lastCloudUpdateAt : null;
+
+  return {
+    pendingDataSync: Boolean(rawSync.pendingDataSync),
+    lastDataChangeAt,
+    lastCloudUpdateAt
+  };
 }
 
 function getMigrationFallbackOwnerId(users) {
@@ -912,6 +1005,11 @@ function ensureMonthISO(value, fallback) {
   return fallback;
 }
 
+function isValidISODateTime(value) {
+  if (!value) return false;
+  return Number.isFinite(Date.parse(String(value)));
+}
+
 function getPackageByCount(type, count) {
   const list = packageOptions[type] || [];
   const numericCount = Number(count);
@@ -1074,6 +1172,32 @@ function getSalaryClosuresForUser(userId = getCurrentUserId()) {
   return state.salaryClosures.filter((closure) => closure.ownerId === userId);
 }
 
+function hasOwnedDataForUser(userId = getCurrentUserId()) {
+  if (!userId) return false;
+  return getStudentsForUser(userId).length > 0
+    || getGroupsForUser(userId).length > 0
+    || getSalaryClosuresForUser(userId).length > 0;
+}
+
+function hasDataInPayload(payload) {
+  if (!payload || typeof payload !== "object") return false;
+  return Array.isArray(payload.students) && payload.students.length > 0
+    || Array.isArray(payload.groups) && payload.groups.length > 0
+    || Array.isArray(payload.salaryClosures) && payload.salaryClosures.length > 0;
+}
+
+function getRemotePayloadUpdatedAt(payload, fallbackUpdatedAt = null) {
+  const fromPayload = payload?.syncMeta?.dataUpdatedAt;
+  if (isValidISODateTime(fromPayload)) return fromPayload;
+  if (isValidISODateTime(fallbackUpdatedAt)) return fallbackUpdatedAt;
+  return null;
+}
+
+function toEpochMs(dateTimeValue) {
+  const ms = Date.parse(String(dateTimeValue || ""));
+  return Number.isFinite(ms) ? ms : 0;
+}
+
 function mergeOwnedRows(allRows, ownedRows, ownerId) {
   const foreignRows = (Array.isArray(allRows) ? allRows : []).filter((item) => item?.ownerId !== ownerId);
   const currentRows = (Array.isArray(ownedRows) ? ownedRows : [])
@@ -1087,6 +1211,7 @@ function mergeOwnedRows(allRows, ownedRows, ownerId) {
 
 function buildEmptyAccountData() {
   const todayISO = getTodayISO();
+  const nowISO = new Date().toISOString();
   return {
     selectedDate: todayISO,
     calendarDate: monthStartISO(todayISO),
@@ -1094,7 +1219,10 @@ function buildEmptyAccountData() {
     editMode: false,
     students: [],
     groups: [],
-    salaryClosures: []
+    salaryClosures: [],
+    syncMeta: {
+      dataUpdatedAt: nowISO
+    }
   };
 }
 
@@ -1167,7 +1295,7 @@ async function registerUser(payload) {
   state.auth.currentUserId = user.id;
   claimLegacyOrphanDataForUser(user.id);
   state.view = "home";
-  saveState();
+  saveState({ dataChanged: true });
   await pushStateToCloud();
   renderApp();
 
@@ -1407,7 +1535,7 @@ function addStudent(payload) {
 
   rebuildStudentPlannedSessions(student, getTodayISO());
   state.students.push(student);
-  saveState();
+  saveState({ dataChanged: true });
   renderApp();
 }
 
@@ -1429,7 +1557,7 @@ function addStudentPackage(studentId, packageCount) {
   student.packagesHistory.push({ ...newPackage });
   rebuildStudentPlannedSessions(student, getTodayISO());
 
-  saveState();
+  saveState({ dataChanged: true });
   renderApp();
 }
 
@@ -1445,7 +1573,7 @@ function updateStudentSchedule(studentId, scheduleDays) {
   }
   rebuildStudentPlannedSessions(student, getTodayISO());
 
-  saveState();
+  saveState({ dataChanged: true });
   renderApp();
 }
 
@@ -1486,7 +1614,7 @@ function updateStudentCardData(studentId, payload) {
   student.scheduleDays = scheduleDays;
   rebuildStudentPlannedSessions(student, getTodayISO());
 
-  saveState();
+  saveState({ dataChanged: true });
   renderApp();
 }
 
@@ -1498,7 +1626,7 @@ function deleteStudentCard(studentId) {
   state.students = state.students.filter((item) => !(item.id === studentId && item.ownerId === ownerId));
   if (state.students.length === beforeCount) return;
 
-  saveState();
+  saveState({ dataChanged: true });
   renderApp();
 }
 
@@ -1542,7 +1670,7 @@ function addGroup(payload) {
 
   rebuildGroupFutureSessions(group, getTodayISO());
   state.groups.push(group);
-  saveState();
+  saveState({ dataChanged: true });
   renderApp();
 }
 
@@ -1589,7 +1717,7 @@ function updateGroupCardData(groupId, payload) {
   });
 
   rebuildGroupFutureSessions(group, getTodayISO());
-  saveState();
+  saveState({ dataChanged: true });
   renderApp();
 }
 
@@ -1620,7 +1748,7 @@ function deleteGroupCard(groupId) {
   state.groups = state.groups.filter((item) => !(item.id === groupId && item.ownerId === ownerId));
   if (state.groups.length === beforeCount) return;
 
-  saveState();
+  saveState({ dataChanged: true });
   renderApp();
 }
 
@@ -1641,7 +1769,7 @@ function markPersonalSession(studentId, sessionId, nextStatus) {
 
   session.status = nextStatus;
   student.remainingTrainings = Math.max(0, Number(student.remainingTrainings || 0) - 1);
-  saveState();
+  saveState({ dataChanged: true });
   renderApp();
 }
 
@@ -1669,7 +1797,7 @@ function forceSetPersonalStatus(studentId, sessionId, nextStatus) {
     student.remainingTrainings = Math.min(Number(student.totalTrainings), Number(student.remainingTrainings || 0) + 1);
   }
 
-  saveState();
+  saveState({ dataChanged: true });
   renderApp();
 }
 
@@ -1690,7 +1818,7 @@ function reschedulePersonalSession(studentId, sessionId) {
   session.date = nextDate;
   sortSessionsByDateTime(student.sessions);
 
-  saveState();
+  saveState({ dataChanged: true });
   renderApp();
 }
 
@@ -1729,7 +1857,7 @@ function setGroupAttendance(groupId, sessionId, studentId, status) {
 
   session.attendance = session.attendance || {};
   session.attendance[studentId] = status;
-  saveState();
+  saveState({ dataChanged: true });
   renderApp();
 }
 
@@ -1755,7 +1883,7 @@ function closeSalaryMonth(monthISO) {
     snapshot
   });
 
-  saveState();
+  saveState({ dataChanged: true });
   renderApp();
 }
 
@@ -1768,7 +1896,7 @@ function reopenSalaryMonth(monthISO) {
     if (closure.ownerId !== ownerId) return true;
     return closure.monthISO !== targetMonth;
   });
-  saveState();
+  saveState({ dataChanged: true });
   renderApp();
 }
 
@@ -2125,7 +2253,7 @@ function importBackupFromFile(file) {
           auth: state.auth
         });
       }
-      saveState();
+      saveState({ dataChanged: true });
       renderApp();
       alert("Бэкап успешно восстановлен.");
     })
