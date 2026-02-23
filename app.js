@@ -283,11 +283,23 @@ async function sendTodayReportToTelegram() {
     return { ok: false, message: "Авторизуйтесь для отправки отчета." };
   }
 
+  const telegramConfig = getTelegramReportConfig();
+  const isGithubPages = /\.github\.io$/i.test(window.location.hostname) || /github\.io$/i.test(window.location.hostname);
+  if (isGithubPages && !telegramConfig.apiBaseUrl) {
+    return {
+      ok: false,
+      message: "На GitHub Pages нет серверного /api. Укажите ATTENDPRO_TELEGRAM.apiBaseUrl в config.js."
+    };
+  }
+
   const todayISO = getTodayISO();
   const text = buildTodayAttendanceReportText(todayISO);
+  const endpoint = telegramConfig.apiBaseUrl
+    ? `${telegramConfig.apiBaseUrl}/api/telegram/send-report`
+    : "/api/telegram/send-report";
 
   try {
-    const response = await fetch("/api/telegram/send-report", {
+    const response = await fetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
@@ -307,6 +319,12 @@ async function sendTodayReportToTelegram() {
     }
 
     if (!response.ok || !payload?.ok) {
+      if (response.status === 405 && isGithubPages && !telegramConfig.apiBaseUrl) {
+        return {
+          ok: false,
+          message: "Метод не поддерживается на GitHub Pages. Нужен отдельный backend для Telegram."
+        };
+      }
       return {
         ok: false,
         message: payload?.message || `Ошибка отправки отчета (${response.status}).`
@@ -324,6 +342,14 @@ async function sendTodayReportToTelegram() {
       message: "Сервер отправки недоступен. Проверьте, что локальный сервер запущен."
     };
   }
+}
+
+function getTelegramReportConfig() {
+  const raw = window.ATTENDPRO_TELEGRAM || {};
+  const apiBaseUrl = String(raw.apiBaseUrl || "")
+    .trim()
+    .replace(/\/+$/, "");
+  return { apiBaseUrl };
 }
 
 function applyTheme(themeName) {

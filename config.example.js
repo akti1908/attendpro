@@ -5,3 +5,10 @@ window.ATTENDPRO_CLOUD = {
   anonKey: "YOUR_SUPABASE_ANON_KEY",
   table: "attendpro_accounts"
 };
+
+// Опционально: внешний backend для Telegram-отчетов.
+// Нужен, если приложение открывается с GitHub Pages.
+// Пример: https://attendpro-api.example.com
+window.ATTENDPRO_TELEGRAM = {
+  apiBaseUrl: ""
+};
