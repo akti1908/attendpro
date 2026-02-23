@@ -107,16 +107,6 @@ body.is-auth-required .nav-actions {
   min-width: 86px;
 }
 
-.theme-toggle-icon {
-  font-size: 1rem;
-  line-height: 1;
-  display: inline-block;
-}
-
-.theme-toggle-btn.is-animating {
-  transform: rotate(180deg) scale(1.08);
-}
-
 .auth-wrap {
   min-height: 70vh;
   display: grid;

@@ -90,7 +90,6 @@ let swRefreshTriggered = false;
 const root = document.getElementById("app");
 bindTopbarMenu();
 bindTopNavigation();
-bindThemeControl();
 bindSyncLifecycleHandlers();
 applyTheme(state.theme);
 renderApp();
@@ -215,21 +214,6 @@ function registerServiceWorker() {
   });
 }
 
-function bindThemeControl() {
-  const button = document.getElementById("theme-toggle");
-  if (!button) return;
-
-  syncThemeToggleButton(button, normalizeTheme(state.theme));
-  button.addEventListener("click", () => {
-    const currentTheme = normalizeTheme(state.theme);
-    const nextTheme = currentTheme === "dark" ? "light" : "dark";
-    button.classList.remove("is-animating");
-    void button.offsetWidth;
-    button.classList.add("is-animating");
-    setTheme(nextTheme);
-  });
-}
-
 function refreshTopbarAuthState() {
   const isLoggedIn = isAuthenticated();
 
@@ -296,24 +280,12 @@ async function syncCloudNow() {
 function applyTheme(themeName) {
   const normalizedTheme = normalizeTheme(themeName);
   document.body.setAttribute("data-theme", normalizedTheme);
-  const button = document.getElementById("theme-toggle");
-  if (button) {
-    syncThemeToggleButton(button, normalizedTheme);
-  }
 }
 
 function normalizeTheme(themeName) {
   const value = String(themeName || "").toLowerCase();
   if (ALLOWED_THEMES.includes(value)) return value;
   return "dark";
-}
-
-function syncThemeToggleButton(button, themeName) {
-  const isDark = themeName === "dark";
-  button.setAttribute("aria-pressed", isDark ? "true" : "false");
-  button.setAttribute("title", isDark ? "Переключить на светлую тему" : "Переключить на темную тему");
-  const icon = button.querySelector(".theme-toggle-icon");
-  if (icon) icon.textContent = isDark ? "☾" : "☀";
 }
 
 function normalizeLegacyText(value) {
@@ -563,18 +535,21 @@ async function pullStateFromCloudForUser(user, options = {}) {
     const sync = getSyncStateForUser(ownerId);
     const remoteUpdatedAt = getRemotePayloadUpdatedAt(payload, account.updated_at);
     const localUpdatedAt = sync.lastDataChangeAt;
+    const remoteUpdatedMs = toEpochMs(remoteUpdatedAt);
+    const localUpdatedMs = toEpochMs(localUpdatedAt);
     const remoteIsNewerThanLocal = Boolean(
       remoteUpdatedAt
       && localUpdatedAt
-      && toEpochMs(remoteUpdatedAt) > toEpochMs(localUpdatedAt)
+      && remoteUpdatedMs > localUpdatedMs
     );
     const preferRemoteOnConflict = Boolean(options?.preferRemoteOnConflict);
+    const remoteIsNotOlder = Boolean(remoteUpdatedAt && (!localUpdatedAt || remoteUpdatedMs >= localUpdatedMs));
 
     // Если есть локальные несинхронизированные изменения, не перетираем их облаком.
     if (sync.pendingDataSync && (localHasData || !remoteHasData)) {
       // Если в облаке данные новее (или запросили приоритет облака вручную),
       // принимаем облачную версию и не пушим локальную поверх нее.
-      if (remoteHasData && (remoteIsNewerThanLocal || preferRemoteOnConflict)) {
+      if (remoteIsNewerThanLocal || (preferRemoteOnConflict && remoteIsNotOlder)) {
         // Продолжаем и применяем payload ниже.
       } else {
         await pushStateToCloud();
@@ -583,7 +558,7 @@ async function pullStateFromCloudForUser(user, options = {}) {
     }
 
     if (remoteUpdatedAt && localUpdatedAt && localHasData) {
-      if (toEpochMs(remoteUpdatedAt) <= toEpochMs(localUpdatedAt)) {
+      if (remoteUpdatedMs <= localUpdatedMs) {
         return false;
       }
     }
@@ -1687,20 +1662,57 @@ function logoutUser() {
   renderApp();
 }
 
-function rebuildStudentPlannedSessions(student, startDateISO = getTodayISO()) {
-  const reserved = student.sessions.filter((session) => {
-    if (isFinalPersonalStatus(session.status)) return true;
-    return compareISODate(session.date, startDateISO) < 0;
+function rebuildStudentPlannedSessions(student, startDateISO = getTodayISO(), options = {}) {
+  const forceRegenerateFuture = Boolean(options.forceRegenerateFuture);
+  const targetCount = Math.max(0, Number(student.remainingTrainings) || 0);
+  const coachIncome = getCoachIncomePerSession(student.activePackage, student.trainingType);
+  const allSessions = Array.isArray(student.sessions) ? student.sessions : [];
+
+  const reserved = [];
+  const futurePlanned = [];
+
+  allSessions.forEach((session) => {
+    if (!session || typeof session !== "object") return;
+    if (isFinalPersonalStatus(session.status)) {
+      reserved.push(session);
+      return;
+    }
+
+    const isPast = compareISODate(session.date, startDateISO) < 0;
+    if (isPast) {
+      reserved.push(session);
+      return;
+    }
+
+    if (!forceRegenerateFuture && session.status === "запланировано") {
+      futurePlanned.push(session);
+    }
   });
 
-  const occupied = new Set(reserved.map((session) => `${session.date}__${session.time}`));
-  const generated = [];
-  const targetCount = Number(student.remainingTrainings) || 0;
-  const coachIncome = getCoachIncomePerSession(student.activePackage, student.trainingType);
+  sortSessionsByDateTime(futurePlanned);
 
+  const preservedPlanned = [];
+  const occupied = new Set(reserved.map((session) => `${session.date}__${session.time}`));
+
+  for (const session of futurePlanned) {
+    if (preservedPlanned.length >= targetCount) break;
+
+    const key = `${session.date}__${student.time}`;
+    if (occupied.has(key)) continue;
+
+    preservedPlanned.push({
+      ...session,
+      time: student.time,
+      status: "запланировано",
+      coachIncome
+    });
+    occupied.add(key);
+  }
+
+  const generated = [];
   let cursor = startDateISO;
   let guard = 0;
-  while (generated.length < targetCount && guard < 3660) {
+  while (preservedPlanned.length + generated.length < targetCount && guard < 3660) {
     const day = parseISODate(cursor).getDay();
     const key = `${cursor}__${student.time}`;
     if (student.scheduleDays.includes(day) && !occupied.has(key)) {
@@ -1717,7 +1729,7 @@ function rebuildStudentPlannedSessions(student, startDateISO = getTodayISO()) {
     guard += 1;
   }
 
-  student.sessions = [...reserved, ...generated];
+  student.sessions = [...reserved, ...preservedPlanned, ...generated];
   sortSessionsByDateTime(student.sessions);
 }
 
@@ -1892,7 +1904,7 @@ function addStudentPackage(studentId, packageCount) {
   student.remainingTrainings = newPackage.count;
   student.packagesHistory = student.packagesHistory || [];
   student.packagesHistory.push({ ...newPackage });
-  rebuildStudentPlannedSessions(student, getTodayISO());
+  rebuildStudentPlannedSessions(student, getTodayISO(), { forceRegenerateFuture: true });
 
   saveState({ dataChanged: true });
   renderApp();
@@ -1909,7 +1921,7 @@ function updateStudentSchedule(studentId, scheduleDays) {
     return;
   }
   student.scheduleDays = nextDays;
-  rebuildStudentPlannedSessions(student, getTodayISO());
+  rebuildStudentPlannedSessions(student, getTodayISO(), { forceRegenerateFuture: true });
 
   saveState({ dataChanged: true });
   renderApp();
@@ -1964,7 +1976,7 @@ function updateStudentCardData(studentId, payload) {
 
   student.time = time;
   student.scheduleDays = scheduleDays;
-  rebuildStudentPlannedSessions(student, getTodayISO());
+  rebuildStudentPlannedSessions(student, getTodayISO(), { forceRegenerateFuture: true });
 
   saveState({ dataChanged: true });
   renderApp();
