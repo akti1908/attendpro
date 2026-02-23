@@ -18,7 +18,10 @@ module.exports = {
       ],
       env: {
         HOST: "0.0.0.0",
-        PORT: "8080"
+        PORT: "8080",
+        TELEGRAM_BOT_TOKEN: "",
+        TELEGRAM_CHAT_ID: "",
+        TELEGRAM_MESSAGE_THREAD_ID: ""
       }
     }
   ]

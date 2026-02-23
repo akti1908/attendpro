@@ -14,6 +14,7 @@ const ALLOWED_THEMES = ["dark", "light"];
 const CLOUD_SYNC_DEBOUNCE_MS = 1200;
 const CLOUD_FETCH_TIMEOUT_MS = 15000;
 const MOBILE_LAYOUT_MAX_WIDTH = 980;
+const TELEGRAM_REPORT_MAX_LENGTH = 3900;
 const DEFAULT_SYNC_STATE = {
   pendingDataSync: false,
   lastDataChangeAt: null,
@@ -275,6 +276,54 @@ async function syncCloudNow() {
   }
 
   return { ok: true, message: "Синхронизация завершена." };
+}
+
+async function sendTodayReportToTelegram() {
+  if (!isAuthenticated()) {
+    return { ok: false, message: "Авторизуйтесь для отправки отчета." };
+  }
+
+  const todayISO = getTodayISO();
+  const text = buildTodayAttendanceReportText(todayISO);
+
+  try {
+    const response = await fetch("/api/telegram/send-report", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        dateISO: todayISO,
+        userEmail: getCurrentUser()?.email || "",
+        text
+      })
+    });
+
+    let payload = null;
+    try {
+      payload = await response.json();
+    } catch (_error) {
+      payload = null;
+    }
+
+    if (!response.ok || !payload?.ok) {
+      return {
+        ok: false,
+        message: payload?.message || `Ошибка отправки отчета (${response.status}).`
+      };
+    }
+
+    return {
+      ok: true,
+      message: payload?.message || "Отчет отправлен в Telegram."
+    };
+  } catch (error) {
+    console.error("sendTodayReportToTelegram error:", error);
+    return {
+      ok: false,
+      message: "Сервер отправки недоступен. Проверьте, что локальный сервер запущен."
+    };
+  }
 }
 
 function applyTheme(themeName) {
@@ -715,6 +764,7 @@ function buildContext() {
       setTheme,
       setTrainerCategory,
       syncCloudNow,
+      sendTodayReportToTelegram,
       registerUser,
       loginUser,
       logoutUser
@@ -1331,6 +1381,83 @@ function roundMoney(value) {
 
 function getTodayISO() {
   return toISODate(new Date());
+}
+
+function buildTodayAttendanceReportText(dateISO) {
+  const sessions = getSessionsForDate(dateISO);
+  const user = getCurrentUser();
+  const lines = [
+    "AttendPro: отчет посещаемости",
+    `Дата: ${formatDate(dateISO)}`,
+    `Аккаунт: ${user?.email || "-"}`,
+    ""
+  ];
+
+  if (!sessions.length) {
+    lines.push("Сегодня занятий нет.");
+    return limitTelegramReportText(lines.join("\n"));
+  }
+
+  let personalTotal = 0;
+  let personalVisited = 0;
+  let personalMissed = 0;
+  let personalPlanned = 0;
+
+  let groupTotal = 0;
+  let groupPresent = 0;
+  let groupAbsent = 0;
+  let groupUnmarked = 0;
+
+  lines.push("Персональные / Сплиты / Мини-группы:");
+  sessions
+    .filter((entry) => entry.type === "personal")
+    .forEach((entry) => {
+      personalTotal += 1;
+      const status = entry.data.status;
+      if (status === "пришел") personalVisited += 1;
+      else if (status === "не пришел") personalMissed += 1;
+      else personalPlanned += 1;
+
+      lines.push(`- ${entry.data.time} ${entry.studentName}: ${status}`);
+    });
+
+  lines.push("");
+  lines.push("Группы:");
+  sessions
+    .filter((entry) => entry.type === "group")
+    .forEach((entry) => {
+      groupTotal += 1;
+      const marks = Object.values(entry.data.attendance || {});
+      const presentCount = marks.filter((item) => item === "присутствовал").length;
+      const absentCount = marks.filter((item) => item === "отсутствовал").length;
+      const unmarkedCount = Math.max(0, (entry.students || []).length - presentCount - absentCount);
+
+      groupPresent += presentCount;
+      groupAbsent += absentCount;
+      groupUnmarked += unmarkedCount;
+
+      lines.push(
+        `- ${entry.data.time} ${entry.groupName}: присутствовали ${presentCount}, отсутствовали ${absentCount}, без отметки ${unmarkedCount}`
+      );
+    });
+
+  lines.push("");
+  lines.push(
+    `Итого персональных: ${personalTotal} (пришел: ${personalVisited}, не пришел: ${personalMissed}, запланировано: ${personalPlanned})`
+  );
+  lines.push(
+    `Итого групп: ${groupTotal} (присутствовали: ${groupPresent}, отсутствовали: ${groupAbsent}, без отметки: ${groupUnmarked})`
+  );
+
+  return limitTelegramReportText(lines.join("\n"));
+}
+
+function limitTelegramReportText(text) {
+  const value = String(text || "");
+  if (value.length <= TELEGRAM_REPORT_MAX_LENGTH) return value;
+  const marker = "\n...\n[Отчет сокращен из-за ограничения Telegram]";
+  const maxBaseLength = Math.max(0, TELEGRAM_REPORT_MAX_LENGTH - marker.length);
+  return `${value.slice(0, maxBaseLength)}${marker}`;
 }
 
 function toISODate(date) {

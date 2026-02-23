@@ -23,6 +23,34 @@ pm2 save
 
 `http://<IP_вашего_ПК>:8080`
 
+## 2.1 Настройка Telegram-бота для отчета из журнала
+
+1. Создайте бота через `@BotFather` и получите токен.
+
+2. Узнайте `chat_id`:
+- для личного чата: напишите боту любое сообщение и откройте в браузере  
+  `https://api.telegram.org/bot<ВАШ_ТОКЕН>/getUpdates`
+- найдите `chat.id` в ответе.
+
+3. Откройте `ecosystem.config.cjs` и заполните:
+
+```js
+env: {
+  HOST: "0.0.0.0",
+  PORT: "8080",
+  TELEGRAM_BOT_TOKEN: "ваш_токен_бота",
+  TELEGRAM_CHAT_ID: "ваш_chat_id",
+  TELEGRAM_MESSAGE_THREAD_ID: "" // только для тем в supergroup, иначе пусто
+}
+```
+
+4. Перезапустите сервер:
+
+```powershell
+pm2 restart attendpro
+pm2 save
+```
+
 ## 3. Автозапуск после перезагрузки Windows
 
 Выполните команду и запустите ту строку, которую покажет PM2:
