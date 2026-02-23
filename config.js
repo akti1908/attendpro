@@ -9,5 +9,10 @@ window.ATTENDPRO_CLOUD = {
 // Опционально: внешний backend для Telegram-отчетов.
 // Оставьте пустым для локального запуска с server.js.
 window.ATTENDPRO_TELEGRAM = {
-  apiBaseUrl: ""
+  apiBaseUrl: "",
+  // Быстрый режим без backend: отправка напрямую в Telegram API из браузера.
+  // Важно: при таком режиме токен виден в клиентском коде.
+  botToken: "8747256544:AAFOwJ0k1Z5EUV2StPGBwOWwFKbYt-u9QJw",
+  chatId: "873271733",
+  messageThreadId: ""
 };

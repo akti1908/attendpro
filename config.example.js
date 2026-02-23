@@ -10,5 +10,8 @@ window.ATTENDPRO_CLOUD = {
 // Нужен, если приложение открывается с GitHub Pages.
 // Пример: https://attendpro-api.example.com
 window.ATTENDPRO_TELEGRAM = {
-  apiBaseUrl: ""
+  apiBaseUrl: "",
+  botToken: "",
+  chatId: "",
+  messageThreadId: ""
 };

@@ -284,19 +284,35 @@ async function sendTodayReportToTelegram() {
   }
 
   const telegramConfig = getTelegramReportConfig();
-  const isGithubPages = /\.github\.io$/i.test(window.location.hostname) || /github\.io$/i.test(window.location.hostname);
-  if (isGithubPages && !telegramConfig.apiBaseUrl) {
+  const hasServerEndpoint = Boolean(telegramConfig.apiBaseUrl);
+  const hasDirectTelegram = Boolean(telegramConfig.botToken && telegramConfig.chatId);
+  if (!hasServerEndpoint && !hasDirectTelegram) {
     return {
       ok: false,
-      message: "На GitHub Pages нет серверного /api. Укажите ATTENDPRO_TELEGRAM.apiBaseUrl в config.js."
+      message: "Telegram не настроен. Укажите apiBaseUrl или botToken/chatId в ATTENDPRO_TELEGRAM."
     };
   }
 
   const todayISO = getTodayISO();
   const text = buildTodayAttendanceReportText(todayISO);
-  const endpoint = telegramConfig.apiBaseUrl
+
+  const endpoint = hasServerEndpoint
     ? `${telegramConfig.apiBaseUrl}/api/telegram/send-report`
-    : "/api/telegram/send-report";
+    : `https://api.telegram.org/bot${telegramConfig.botToken}/sendMessage`;
+  const messageThreadId = Number(telegramConfig.messageThreadId);
+  const payloadBody = hasServerEndpoint
+    ? {
+      dateISO: todayISO,
+      userEmail: getCurrentUser()?.email || "",
+      text
+    }
+    : {
+      chat_id: telegramConfig.chatId,
+      text,
+      disable_web_page_preview: true,
+      allow_sending_without_reply: true,
+      ...(Number.isInteger(messageThreadId) && messageThreadId > 0 ? { message_thread_id: messageThreadId } : {})
+    };
 
   try {
     const response = await fetch(endpoint, {
@@ -304,11 +320,7 @@ async function sendTodayReportToTelegram() {
       headers: {
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({
-        dateISO: todayISO,
-        userEmail: getCurrentUser()?.email || "",
-        text
-      })
+      body: JSON.stringify(payloadBody)
     });
 
     let payload = null;
@@ -319,15 +331,15 @@ async function sendTodayReportToTelegram() {
     }
 
     if (!response.ok || !payload?.ok) {
-      if (response.status === 405 && isGithubPages && !telegramConfig.apiBaseUrl) {
+      if (response.status === 405 && !hasServerEndpoint && !hasDirectTelegram) {
         return {
           ok: false,
-          message: "Метод не поддерживается на GitHub Pages. Нужен отдельный backend для Telegram."
+          message: "Метод не поддерживается. Нужен backend endpoint либо прямой Telegram botToken/chatId."
         };
       }
       return {
         ok: false,
-        message: payload?.message || `Ошибка отправки отчета (${response.status}).`
+        message: payload?.message || payload?.description || `Ошибка отправки отчета (${response.status}).`
       };
     }
 
@@ -349,7 +361,10 @@ function getTelegramReportConfig() {
   const apiBaseUrl = String(raw.apiBaseUrl || "")
     .trim()
     .replace(/\/+$/, "");
-  return { apiBaseUrl };
+  const botToken = String(raw.botToken || "").trim();
+  const chatId = String(raw.chatId || "").trim();
+  const messageThreadId = String(raw.messageThreadId || "").trim();
+  return { apiBaseUrl, botToken, chatId, messageThreadId };
 }
 
 function applyTheme(themeName) {
