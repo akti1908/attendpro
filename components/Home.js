@@ -35,7 +35,7 @@ export function renderHome(root, ctx) {
       ${lockedByMonth ? `<p class="locked-note">Дата относится к закрытому месяцу. Изменения заблокированы.</p>` : ""}
       <div id="day-list" class="list-scroll"></div>
       <div class="tools-row section-gap">
-        <button id="send-today-report" class="btn small-btn">Отправить отчет за сегодня в Telegram</button>
+        <button id="send-today-report" class="btn small-btn">Отправить отчет за выбранный день в Telegram</button>
         <p id="send-today-report-message" class="muted small-note"></p>
       </div>
     </section>
@@ -142,7 +142,7 @@ export function renderHome(root, ctx) {
       sendTodayReportMessage.classList.remove("auth-error", "auth-success");
     }
 
-    const result = await ctx.actions.sendTodayReportToTelegram();
+    const result = await ctx.actions.sendTodayReportToTelegram(selectedDate);
 
     if (sendTodayReportMessage) {
       sendTodayReportMessage.textContent = result?.message || "Не удалось отправить отчет.";

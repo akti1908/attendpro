@@ -278,7 +278,7 @@ async function syncCloudNow() {
   return { ok: true, message: "Синхронизация завершена." };
 }
 
-async function sendTodayReportToTelegram() {
+async function sendTodayReportToTelegram(targetDateISO = null) {
   if (!isAuthenticated()) {
     return { ok: false, message: "Авторизуйтесь для отправки отчета." };
   }
@@ -293,8 +293,8 @@ async function sendTodayReportToTelegram() {
     };
   }
 
-  const todayISO = getTodayISO();
-  const text = buildTodayAttendanceReportText(todayISO);
+  const reportDateISO = ensureISODate(targetDateISO, getTodayISO());
+  const text = buildTodayAttendanceReportText(reportDateISO);
 
   const endpoint = hasServerEndpoint
     ? `${telegramConfig.apiBaseUrl}/api/telegram/send-report`
@@ -302,7 +302,7 @@ async function sendTodayReportToTelegram() {
   const messageThreadId = Number(telegramConfig.messageThreadId);
   const payloadBody = hasServerEndpoint
     ? {
-      dateISO: todayISO,
+      dateISO: reportDateISO,
       userEmail: getCurrentUser()?.email || "",
       text
     }
@@ -1427,6 +1427,16 @@ function getTodayISO() {
 function buildTodayAttendanceReportText(dateISO) {
   const sessions = getSessionsForDate(dateISO);
   const user = getCurrentUser();
+  const personalTypeLabel = {
+    personal: "Персональная",
+    split: "Сплит",
+    mini_group: "Мини-группа"
+  };
+  const personalStatsByType = {
+    personal: { total: 0, visited: 0, missed: 0, planned: 0 },
+    split: { total: 0, visited: 0, missed: 0, planned: 0 },
+    mini_group: { total: 0, visited: 0, missed: 0, planned: 0 }
+  };
   const lines = [
     "AttendPro: отчет посещаемости",
     `Дата: ${formatDate(dateISO)}`,
@@ -1439,34 +1449,39 @@ function buildTodayAttendanceReportText(dateISO) {
     return limitTelegramReportText(lines.join("\n"));
   }
 
-  let personalTotal = 0;
-  let personalVisited = 0;
-  let personalMissed = 0;
-  let personalPlanned = 0;
-
   let groupTotal = 0;
   let groupPresent = 0;
   let groupAbsent = 0;
   let groupUnmarked = 0;
 
   lines.push("Персональные / Сплиты / Мини-группы:");
-  sessions
+  const personalRows = sessions
     .filter((entry) => entry.type === "personal")
-    .forEach((entry) => {
-      personalTotal += 1;
-      const status = entry.data.status;
-      if (status === "пришел") personalVisited += 1;
-      else if (status === "не пришел") personalMissed += 1;
-      else personalPlanned += 1;
+    .map((entry) => {
+      const trainingType = entry.trainingType === "split" || entry.trainingType === "mini_group"
+        ? entry.trainingType
+        : "personal";
+      const typeStats = personalStatsByType[trainingType];
+      typeStats.total += 1;
 
-      lines.push(`- ${entry.data.time} ${entry.studentName}: ${status}`);
+      const status = entry.data.status;
+      if (status === "пришел") typeStats.visited += 1;
+      else if (status === "не пришел") typeStats.missed += 1;
+      else typeStats.planned += 1;
+
+      return `- ${entry.data.time} [${personalTypeLabel[trainingType]}] ${entry.studentName}: ${status}`;
     });
+  if (personalRows.length) {
+    lines.push(...personalRows);
+  } else {
+    lines.push("- Нет записей");
+  }
 
   lines.push("");
   lines.push("Группы:");
-  sessions
+  const groupRows = sessions
     .filter((entry) => entry.type === "group")
-    .forEach((entry) => {
+    .map((entry) => {
       groupTotal += 1;
       const marks = Object.values(entry.data.attendance || {});
       const presentCount = marks.filter((item) => item === "присутствовал").length;
@@ -1477,17 +1492,26 @@ function buildTodayAttendanceReportText(dateISO) {
       groupAbsent += absentCount;
       groupUnmarked += unmarkedCount;
 
-      lines.push(
-        `- ${entry.data.time} ${entry.groupName}: присутствовали ${presentCount}, отсутствовали ${absentCount}, без отметки ${unmarkedCount}`
-      );
+      return `- ${entry.data.time} ${entry.groupName}: присутствовали ${presentCount}, отсутствовали ${absentCount}, без отметки ${unmarkedCount}`;
     });
+  if (groupRows.length) {
+    lines.push(...groupRows);
+  } else {
+    lines.push("- Нет записей");
+  }
 
   lines.push("");
   lines.push(
-    `Итого персональных: ${personalTotal} (пришел: ${personalVisited}, не пришел: ${personalMissed}, запланировано: ${personalPlanned})`
+    `Персональные: ${personalStatsByType.personal.total} (пришел: ${personalStatsByType.personal.visited}, не пришел: ${personalStatsByType.personal.missed}, запланировано: ${personalStatsByType.personal.planned})`
   );
   lines.push(
-    `Итого групп: ${groupTotal} (присутствовали: ${groupPresent}, отсутствовали: ${groupAbsent}, без отметки: ${groupUnmarked})`
+    `Сплиты: ${personalStatsByType.split.total} (пришел: ${personalStatsByType.split.visited}, не пришел: ${personalStatsByType.split.missed}, запланировано: ${personalStatsByType.split.planned})`
+  );
+  lines.push(
+    `Мини-группы: ${personalStatsByType.mini_group.total} (пришел: ${personalStatsByType.mini_group.visited}, не пришел: ${personalStatsByType.mini_group.missed}, запланировано: ${personalStatsByType.mini_group.planned})`
+  );
+  lines.push(
+    `Группы: ${groupTotal} (присутствовали: ${groupPresent}, отсутствовали: ${groupAbsent}, без отметки: ${groupUnmarked})`
   );
 
   return limitTelegramReportText(lines.join("\n"));
