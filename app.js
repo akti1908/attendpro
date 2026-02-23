@@ -1427,16 +1427,7 @@ function getTodayISO() {
 function buildTodayAttendanceReportText(dateISO) {
   const sessions = getSessionsForDate(dateISO);
   const user = getCurrentUser();
-  const personalTypeLabel = {
-    personal: "Персональная",
-    split: "Сплит",
-    mini_group: "Мини-группа"
-  };
-  const personalStatsByType = {
-    personal: { total: 0, visited: 0, missed: 0, planned: 0 },
-    split: { total: 0, visited: 0, missed: 0, planned: 0 },
-    mini_group: { total: 0, visited: 0, missed: 0, planned: 0 }
-  };
+  const personalTypeLabel = { personal: "персональная", split: "сплит", mini_group: "мини-группа" };
   const lines = [
     "AttendPro: отчет посещаемости",
     `Дата: ${formatDate(dateISO)}`,
@@ -1449,32 +1440,31 @@ function buildTodayAttendanceReportText(dateISO) {
     return limitTelegramReportText(lines.join("\n"));
   }
 
+  let personalPlannedCount = 0;
   let groupTotal = 0;
   let groupPresent = 0;
   let groupAbsent = 0;
   let groupUnmarked = 0;
+  const unmarkedLines = [];
 
-  lines.push("Персональные / Сплиты / Мини-группы:");
   const personalRows = sessions
     .filter((entry) => entry.type === "personal")
     .map((entry) => {
       const trainingType = entry.trainingType === "split" || entry.trainingType === "mini_group"
         ? entry.trainingType
         : "personal";
-      const typeStats = personalStatsByType[trainingType];
-      typeStats.total += 1;
-
       const status = entry.data.status;
-      if (status === "пришел") typeStats.visited += 1;
-      else if (status === "не пришел") typeStats.missed += 1;
-      else typeStats.planned += 1;
+      if (status === "запланировано") {
+        personalPlannedCount += 1;
+        unmarkedLines.push(`- ${entry.data.time} ${entry.studentName} (${personalTypeLabel[trainingType]})`);
+      }
 
-      return `- ${entry.data.time} [${personalTypeLabel[trainingType]}] ${entry.studentName}: ${status}`;
+      return `- ${entry.data.time}  ${entry.studentName}: ${status}`;
     });
   if (personalRows.length) {
     lines.push(...personalRows);
   } else {
-    lines.push("- Нет записей");
+    lines.push("- Нет персональных занятий");
   }
 
   lines.push("");
@@ -1491,24 +1481,28 @@ function buildTodayAttendanceReportText(dateISO) {
       groupPresent += presentCount;
       groupAbsent += absentCount;
       groupUnmarked += unmarkedCount;
+      if (unmarkedCount > 0) {
+        unmarkedLines.push(`- ${entry.data.time} ${entry.groupName}: без отметки ${unmarkedCount}`);
+      }
 
-      return `- ${entry.data.time} ${entry.groupName}: присутствовали ${presentCount}, отсутствовали ${absentCount}, без отметки ${unmarkedCount}`;
+      return `- ${entry.data.time} ${entry.groupName}: без отметки ${unmarkedCount}`;
     });
   if (groupRows.length) {
     lines.push(...groupRows);
   } else {
-    lines.push("- Нет записей");
+    lines.push("- Нет групповых занятий");
   }
 
   lines.push("");
+  lines.push("Итого не отмечено:");
+  if (unmarkedLines.length) {
+    lines.push(...unmarkedLines);
+  } else {
+    lines.push("- Нет неотмеченных");
+  }
+
   lines.push(
-    `Персональные: ${personalStatsByType.personal.total} (пришел: ${personalStatsByType.personal.visited}, не пришел: ${personalStatsByType.personal.missed}, запланировано: ${personalStatsByType.personal.planned})`
-  );
-  lines.push(
-    `Сплиты: ${personalStatsByType.split.total} (пришел: ${personalStatsByType.split.visited}, не пришел: ${personalStatsByType.split.missed}, запланировано: ${personalStatsByType.split.planned})`
-  );
-  lines.push(
-    `Мини-группы: ${personalStatsByType.mini_group.total} (пришел: ${personalStatsByType.mini_group.visited}, не пришел: ${personalStatsByType.mini_group.missed}, запланировано: ${personalStatsByType.mini_group.planned})`
+    `Персональные/сплиты/мини-группы без отметки: ${personalPlannedCount}`
   );
   lines.push(
     `Группы: ${groupTotal} (присутствовали: ${groupPresent}, отсутствовали: ${groupAbsent}, без отметки: ${groupUnmarked})`
