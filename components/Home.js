@@ -167,7 +167,16 @@ function bindJournalSwipeNavigation(root, ctx) {
   const state = {
     startX: 0,
     startY: 0,
+    lastX: 0,
+    lastY: 0,
     active: false
+  };
+
+  const readTouchPoint = (touchList) => {
+    if (!touchList || !touchList.length) return null;
+    const touch = touchList[0];
+    if (!touch) return null;
+    return { x: touch.clientX, y: touch.clientY };
   };
 
   swipeSurface.addEventListener(
@@ -175,20 +184,27 @@ function bindJournalSwipeNavigation(root, ctx) {
     (event) => {
       if (!event.touches || event.touches.length !== 1) return;
 
-      // Не перехватываем жесты, начатые на интерактивных элементах.
-      const targetElement = event.target instanceof Element ? event.target : null;
-      const interactiveTarget = targetElement
-        ? targetElement.closest("button, input, select, textarea, label, a, [role='button']")
-        : null;
-      if (interactiveTarget) {
-        state.active = false;
-        return;
-      }
+      const point = readTouchPoint(event.touches);
+      if (!point) return;
 
-      const touch = event.touches[0];
-      state.startX = touch.clientX;
-      state.startY = touch.clientY;
+      state.startX = point.x;
+      state.startY = point.y;
+      state.lastX = point.x;
+      state.lastY = point.y;
       state.active = true;
+    },
+    { passive: true }
+  );
+
+  swipeSurface.addEventListener(
+    "touchmove",
+    (event) => {
+      if (!state.active) return;
+      const point = readTouchPoint(event.touches);
+      if (!point) return;
+
+      state.lastX = point.x;
+      state.lastY = point.y;
     },
     { passive: true }
   );
@@ -196,14 +212,14 @@ function bindJournalSwipeNavigation(root, ctx) {
   swipeSurface.addEventListener(
     "touchend",
     (event) => {
-      if (!state.active || !event.changedTouches || event.changedTouches.length !== 1) {
+      if (!state.active) {
         state.active = false;
         return;
       }
 
-      const touch = event.changedTouches[0];
-      const deltaX = touch.clientX - state.startX;
-      const deltaY = touch.clientY - state.startY;
+      const point = readTouchPoint(event.changedTouches) || { x: state.lastX, y: state.lastY };
+      const deltaX = point.x - state.startX;
+      const deltaY = point.y - state.startY;
 
       state.active = false;
 

@@ -177,12 +177,35 @@ body[data-theme="light"] .bottom-nav {
 }
 
 .bottom-nav .btn {
-  min-height: 42px;
-  padding: 8px 4px;
-  border-radius: 10px;
+  width: 48px;
+  min-width: 48px;
+  min-height: 48px;
+  padding: 0;
+  margin: 0 auto;
+  border-radius: 999px;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
   font-size: 0.76rem;
   text-align: center;
   justify-content: center;
+}
+
+.bottom-nav .btn:hover {
+  background: transparent;
+  border-color: rgba(148, 163, 184, 0.35);
+  box-shadow: none;
+}
+
+.bottom-nav .btn.btn-active {
+  background: transparent;
+  color: var(--accent);
+  border-color: rgba(59, 130, 246, 0.38);
+  box-shadow: none;
+}
+
+.bottom-nav .btn.btn-active:hover {
+  background: transparent;
 }
 
 .nav-btn {
@@ -203,7 +226,8 @@ body[data-theme="light"] .bottom-nav {
 
 #menu-toggle[aria-expanded="true"] {
   border-color: rgba(59, 130, 246, 0.38);
-  background: var(--accent-soft);
+  background: transparent;
+  color: var(--accent);
 }
 
 body.is-auth-required .bottom-nav {
@@ -870,9 +894,11 @@ input[type="radio"] {
   }
 
   .bottom-nav .btn {
-    min-height: 42px;
-    font-size: 0.76rem;
-    padding: 8px 4px;
+    width: 46px;
+    min-width: 46px;
+    min-height: 46px;
+    font-size: 0.74rem;
+    padding: 0;
   }
 
   .app-main {
