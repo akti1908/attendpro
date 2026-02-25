@@ -57,9 +57,21 @@ export function renderGroupsManager(root, ctx) {
   const defaultHour = getDefaultHour(availableHours);
 
   root.innerHTML = `
-    <section class="grid grid-2">
-      <div class="card">
-        <h2 class="section-title">Добавить группу</h2>
+    <section class="card">
+      <div class="card-head">
+        <h2 class="section-title">Список групп</h2>
+        <button id="open-group-modal" class="btn small-btn" type="button">Добавить группу</button>
+      </div>
+      <div id="groups-list" class="list-scroll"></div>
+    </section>
+
+    <div id="group-create-modal" class="form-modal is-hidden" role="dialog" aria-modal="true" aria-labelledby="group-modal-title">
+      <div class="form-modal-card">
+        <div class="form-modal-head">
+          <h3 id="group-modal-title">Новая группа</h3>
+          <button class="btn small-btn" type="button" data-action="close-group-modal">Закрыть</button>
+        </div>
+
         <form id="group-form">
           <div class="form-row">
             <input required name="name" placeholder="Название группы" />
@@ -67,18 +79,44 @@ export function renderGroupsManager(root, ctx) {
             <input required name="students" placeholder="Ученики (через запятую)" />
           </div>
           <div id="group-days" class="days">${renderDayCheckboxes(ctx.weekDays, [], "group-day", allowedWorkDays)}</div>
-          <button class="btn btn-primary" type="submit">Добавить группу</button>
+          <div class="session-actions">
+            <button class="btn btn-primary" type="submit">Добавить группу</button>
+            <button class="btn" type="button" data-action="close-group-modal">Отмена</button>
+          </div>
         </form>
       </div>
-
-      <div class="card">
-        <h2 class="section-title">Список групп</h2>
-        <div id="groups-list" class="list-scroll"></div>
-      </div>
-    </section>
+    </div>
   `;
 
-  root.querySelector("#group-form").addEventListener("submit", (event) => {
+  const groupCreateModal = root.querySelector("#group-create-modal");
+  const openGroupModalButton = root.querySelector("#open-group-modal");
+  const groupForm = root.querySelector("#group-form");
+
+  const resetGroupForm = () => {
+    groupForm?.reset();
+  };
+
+  const closeGroupModal = () => {
+    groupCreateModal?.classList.add("is-hidden");
+    document.body.classList.remove("modal-open");
+    resetGroupForm();
+  };
+
+  const openGroupModal = () => {
+    groupCreateModal?.classList.remove("is-hidden");
+    document.body.classList.add("modal-open");
+    root.querySelector("#group-form input[name='name']")?.focus();
+  };
+
+  openGroupModalButton?.addEventListener("click", openGroupModal);
+  root.querySelectorAll("[data-action='close-group-modal']").forEach((button) => {
+    button.addEventListener("click", closeGroupModal);
+  });
+
+  groupCreateModal?.addEventListener("click", (event) => {
+    if (event.target === groupCreateModal) closeGroupModal();
+  });
+  groupForm?.addEventListener("submit", (event) => {
     event.preventDefault();
 
     const formData = new FormData(event.currentTarget);
@@ -98,7 +136,7 @@ export function renderGroupsManager(root, ctx) {
       alert("Добавьте хотя бы одного ученика.");
       return;
     }
-
+    document.body.classList.remove("modal-open");
     ctx.actions.addGroup({
       name: String(formData.get("name")).trim(),
       scheduleDays,

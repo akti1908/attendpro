@@ -121,9 +121,23 @@ export function renderStudentsManager(root, ctx) {
   const defaultHour = getDefaultHour(availableHours);
 
   root.innerHTML = `
-    <section class="grid grid-2">
-      <div class="card">
-        <h2 class="section-title">Добавить карточку</h2>
+    <section class="card">
+      <div class="card-head">
+        <h2 class="section-title">Карточки</h2>
+        <button id="open-student-modal" class="btn small-btn" type="button">Добавить карточку</button>
+      </div>
+      <input id="students-search" type="text" placeholder="Поиск по карточкам: имя, участники, формат" />
+      <p id="students-search-empty" class="muted mt-8 is-hidden">Ничего не найдено.</p>
+      <div id="students-list" class="list-scroll"></div>
+    </section>
+
+    <div id="student-create-modal" class="form-modal is-hidden" role="dialog" aria-modal="true" aria-labelledby="student-modal-title">
+      <div class="form-modal-card">
+        <div class="form-modal-head">
+          <h3 id="student-modal-title">Новая карточка</h3>
+          <button class="btn small-btn" type="button" data-action="close-student-modal">Закрыть</button>
+        </div>
+
         <form id="student-form">
           <div class="form-row">
             <select id="training-type" name="trainingType" required>
@@ -141,17 +155,13 @@ export function renderStudentsManager(root, ctx) {
           </div>
 
           <div id="student-days" class="days">${renderDayCheckboxes(ctx.weekDays, [], "student-day", allowedWorkDays)}</div>
-          <button class="btn btn-primary" type="submit">Создать карточку</button>
+          <div class="session-actions">
+            <button class="btn btn-primary" type="submit">Создать карточку</button>
+            <button class="btn" type="button" data-action="close-student-modal">Отмена</button>
+          </div>
         </form>
       </div>
-
-      <div class="card">
-        <h2 class="section-title">Карточки</h2>
-        <input id="students-search" type="text" placeholder="Поиск по карточкам: имя, участники, формат" />
-        <p id="students-search-empty" class="muted mt-8 is-hidden">Ничего не найдено.</p>
-        <div id="students-list" class="list-scroll"></div>
-      </div>
-    </section>
+    </div>
   `;
 
   const typeSelect = root.querySelector("#training-type");
@@ -159,6 +169,9 @@ export function renderStudentsManager(root, ctx) {
   const primaryName = root.querySelector("#primary-name");
   const secondName = root.querySelector("#secondary-name");
   const miniMembers = root.querySelector("#mini-members");
+  const studentCreateModal = root.querySelector("#student-create-modal");
+  const openStudentModalButton = root.querySelector("#open-student-modal");
+  const studentForm = root.querySelector("#student-form");
 
   const syncFormByType = () => {
     const type = String(typeSelect.value || "personal");
@@ -188,7 +201,34 @@ export function renderStudentsManager(root, ctx) {
   typeSelect.addEventListener("change", syncFormByType);
   syncFormByType();
 
-  root.querySelector("#student-form").addEventListener("submit", (event) => {
+  const resetStudentForm = () => {
+    studentForm?.reset();
+    syncFormByType();
+  };
+
+  const closeStudentModal = () => {
+    studentCreateModal?.classList.add("is-hidden");
+    document.body.classList.remove("modal-open");
+    resetStudentForm();
+  };
+
+  const openStudentModal = () => {
+    studentCreateModal?.classList.remove("is-hidden");
+    document.body.classList.add("modal-open");
+    syncFormByType();
+    primaryName?.focus();
+  };
+
+  openStudentModalButton?.addEventListener("click", openStudentModal);
+  root.querySelectorAll("[data-action='close-student-modal']").forEach((button) => {
+    button.addEventListener("click", closeStudentModal);
+  });
+
+  studentCreateModal?.addEventListener("click", (event) => {
+    if (event.target === studentCreateModal) closeStudentModal();
+  });
+
+  studentForm?.addEventListener("submit", (event) => {
     event.preventDefault();
 
     const formData = new FormData(event.currentTarget);
@@ -212,7 +252,7 @@ export function renderStudentsManager(root, ctx) {
         return;
       }
     }
-
+    document.body.classList.remove("modal-open");
     ctx.actions.addStudent({
       trainingType,
       primaryName: formData.get("primaryName"),

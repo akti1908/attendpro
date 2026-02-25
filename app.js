@@ -803,6 +803,7 @@ async function bootstrapCloudSync() {
 function renderApp() {
   if (!root) return;
   applyTheme(state.theme);
+  document.body.classList.remove("modal-open");
   refreshTopbarAuthState();
 
   const ctx = buildContext();

@@ -43,7 +43,6 @@ export function renderSettings(root, ctx) {
           <summary class="setting-summary">Тема приложения</summary>
           <div class="setting-collapse-body">
             <div class="setting-item">
-              <span class="muted">Текущая тема</span>
               <button id="settings-theme-toggle" class="btn small-btn" type="button">Тема: ${currentTheme}</button>
             </div>
           </div>
