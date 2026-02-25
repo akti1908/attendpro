@@ -27,109 +27,160 @@ export function renderSettings(root, ctx) {
     <section class="card">
       <h2 class="section-title">Настройки</h2>
 
-      <div class="settings-grid">
-        <div class="setting-item">
-          <span class="muted">Текущий аккаунт</span>
-          <strong>${escapeHtml(currentEmail)}</strong>
-          <button id="settings-logout" class="btn small-btn" type="button">Выйти</button>
-        </div>
+      <div class="settings-accordion">
+        <details class="setting-collapse">
+          <summary class="setting-summary">Аккаунт</summary>
+          <div class="setting-collapse-body">
+            <div class="setting-item">
+              <span class="muted">Текущий аккаунт</span>
+              <strong>${escapeHtml(currentEmail)}</strong>
+              <button id="settings-logout" class="btn small-btn" type="button">Выйти</button>
+            </div>
+          </div>
+        </details>
 
-        <div class="setting-item">
-          <span class="muted">Тема приложения</span>
-          <button id="settings-theme-toggle" class="btn small-btn" type="button">
-            Тема: ${currentTheme}
-          </button>
-        </div>
+        <details class="setting-collapse">
+          <summary class="setting-summary">Тема приложения</summary>
+          <div class="setting-collapse-body">
+            <div class="setting-item">
+              <span class="muted">Текущая тема</span>
+              <button id="settings-theme-toggle" class="btn small-btn" type="button">Тема: ${currentTheme}</button>
+            </div>
+          </div>
+        </details>
 
-        <div class="setting-item">
-          <label for="trainer-category" class="muted">Категория тренера</label>
-          <select id="trainer-category">
-            ${ctx.trainerCategories.map((category) => {
-              const selected = settings.trainerCategory === category ? "selected" : "";
-              return `<option value="${category}" ${selected}>Категория ${category}</option>`;
-            }).join("")}
-          </select>
-        </div>
+        <details class="setting-collapse">
+          <summary class="setting-summary">Категория тренера</summary>
+          <div class="setting-collapse-body">
+            <div class="setting-item">
+              <label for="trainer-category" class="muted">Выберите категорию</label>
+              <select id="trainer-category">
+                ${ctx.trainerCategories
+                  .map((category) => {
+                    const selected = settings.trainerCategory === category ? "selected" : "";
+                    return `<option value="${category}" ${selected}>Категория ${category}</option>`;
+                  })
+                  .join("")}
+              </select>
+            </div>
+          </div>
+        </details>
 
-        <div class="setting-item">
-          <span class="muted">График работы</span>
-          <div class="days settings-days">
-            ${ctx.weekDays.map((day) => `
-              <label>
-                <input type="checkbox" name="work-day" value="${day.jsDay}" ${workDays.includes(Number(day.jsDay)) ? "checked" : ""} />
-                ${day.label}
+        <details class="setting-collapse">
+          <summary class="setting-summary">График работы</summary>
+          <div class="setting-collapse-body">
+            <div class="setting-item">
+              <div class="days settings-days">
+                ${ctx.weekDays
+                  .map(
+                    (day) => `
+                      <label>
+                        <input type="checkbox" name="work-day" value="${day.jsDay}" ${
+                      workDays.includes(Number(day.jsDay)) ? "checked" : ""
+                    } />
+                        ${day.label}
+                      </label>
+                    `
+                  )
+                  .join("")}
+              </div>
+
+              <div class="session-actions settings-time-range">
+                <label>
+                  <span class="muted">С</span>
+                  <select id="work-start-hour">${renderHourOptions(workStartHour)}</select>
+                </label>
+                <label>
+                  <span class="muted">До</span>
+                  <select id="work-end-hour">${renderHourOptions(workEndHour)}</select>
+                </label>
+              </div>
+
+              <button id="settings-save-work-schedule" class="btn small-btn" type="button">Сохранить график</button>
+              <p id="settings-work-schedule-message" class="muted small-note"></p>
+            </div>
+          </div>
+        </details>
+
+        <details class="setting-collapse">
+          <summary class="setting-summary">Автоотчет в Telegram</summary>
+          <div class="setting-collapse-body">
+            <div class="setting-item">
+              <label class="setting-inline" for="auto-report-enabled">
+                <input id="auto-report-enabled" type="checkbox" ${autoReport.enabled ? "checked" : ""} />
+                <span>Включить автоматическую отправку</span>
               </label>
-            `).join("")}
+
+              <div class="days settings-days">
+                ${ctx.weekDays
+                  .map(
+                    (day) => `
+                      <label>
+                        <input type="checkbox" name="auto-report-day" value="${day.jsDay}" ${
+                      autoReportDays.includes(Number(day.jsDay)) ? "checked" : ""
+                    } />
+                        ${day.label}
+                      </label>
+                    `
+                  )
+                  .join("")}
+              </div>
+
+              <label for="auto-report-hour" class="muted">Час отправки</label>
+              <select id="auto-report-hour">${renderHourOptions(autoReportHour)}</select>
+
+              <button id="settings-save-auto-report" class="btn small-btn" type="button">Сохранить автоотчет</button>
+              <p id="settings-auto-report-message" class="muted small-note"></p>
+            </div>
           </div>
+        </details>
 
-          <div class="session-actions settings-time-range">
-            <label>
-              <span class="muted">С</span>
-              <select id="work-start-hour">${renderHourOptions(workStartHour)}</select>
-            </label>
-            <label>
-              <span class="muted">До</span>
-              <select id="work-end-hour">${renderHourOptions(workEndHour)}</select>
-            </label>
+        <details class="setting-collapse">
+          <summary class="setting-summary">Синхронизация</summary>
+          <div class="setting-collapse-body">
+            <div class="setting-item">
+              <button id="settings-sync-now" class="btn small-btn" type="button" ${ctx.isCloudConfigured ? "" : "disabled"}>
+                Синхронизировать сейчас
+              </button>
+              <p id="settings-message" class="muted small-note"></p>
+            </div>
           </div>
-
-          <button id="settings-save-work-schedule" class="btn small-btn" type="button">Сохранить график</button>
-          <p id="settings-work-schedule-message" class="muted small-note"></p>
-        </div>
-
-        <div class="setting-item">
-          <span class="muted">Автоотчет в Telegram</span>
-          <label class="setting-inline" for="auto-report-enabled">
-            <input id="auto-report-enabled" type="checkbox" ${autoReport.enabled ? "checked" : ""} />
-            <span>Включить автоматическую отправку</span>
-          </label>
-
-          <div class="days settings-days">
-            ${ctx.weekDays.map((day) => `
-              <label>
-                <input type="checkbox" name="auto-report-day" value="${day.jsDay}" ${autoReportDays.includes(Number(day.jsDay)) ? "checked" : ""} />
-                ${day.label}
-              </label>
-            `).join("")}
-          </div>
-
-          <label for="auto-report-hour" class="muted">Час отправки</label>
-          <select id="auto-report-hour">
-            ${renderHourOptions(autoReportHour)}
-          </select>
-
-          <button id="settings-save-auto-report" class="btn small-btn" type="button">Сохранить автоотчет</button>
-          <p id="settings-auto-report-message" class="muted small-note"></p>
-        </div>
-
-        <div class="setting-item">
-          <span class="muted">Синхронизация</span>
-          <button id="settings-sync-now" class="btn small-btn" type="button" ${ctx.isCloudConfigured ? "" : "disabled"}>
-            Синхронизировать сейчас
-          </button>
-          <p id="settings-message" class="muted small-note"></p>
-        </div>
+        </details>
       </div>
     </section>
 
     <section class="card section-gap">
       <h2 class="section-title">Прайсы по выбранной категории</h2>
 
-      <div class="price-block">
-        <h3>Персональные</h3>
-        ${renderPriceTable(ctx.packageOptions.personal, "сом")}
-      </div>
+      <div class="settings-accordion">
+        <details class="setting-collapse">
+          <summary class="setting-summary">Персональные</summary>
+          <div class="setting-collapse-body">
+            <div class="setting-item">
+              ${renderPriceTable(ctx.packageOptions.personal, "сом")}
+            </div>
+          </div>
+        </details>
 
-      <div class="price-block section-gap">
-        <h3>Сплит (за 1 человека)</h3>
-        ${renderPriceTable(ctx.packageOptions.split, "сом/чел")}
-        <p class="muted small-note">Прайсы сплитов для категорий II/III временно базовые, обновим после получения вашей таблицы.</p>
-      </div>
+        <details class="setting-collapse">
+          <summary class="setting-summary">Сплит (за 1 человека)</summary>
+          <div class="setting-collapse-body">
+            <div class="setting-item">
+              ${renderPriceTable(ctx.packageOptions.split, "сом/чел")}
+              <p class="muted small-note">Прайсы сплитов для категорий II/III временно базовые, обновим после получения вашей таблицы.</p>
+            </div>
+          </div>
+        </details>
 
-      <div class="price-block section-gap">
-        <h3>Мини-группа (за 1 человека)</h3>
-        ${renderPriceTable(ctx.packageOptions.mini_group, "сом/чел")}
-        <p class="muted small-note">Мини-группа: от 3 до 5 участников в карточке.</p>
+        <details class="setting-collapse">
+          <summary class="setting-summary">Мини-группа (за 1 человека)</summary>
+          <div class="setting-collapse-body">
+            <div class="setting-item">
+              ${renderPriceTable(ctx.packageOptions.mini_group, "сом/чел")}
+              <p class="muted small-note">Мини-группа: от 3 до 5 участников в карточке.</p>
+            </div>
+          </div>
+        </details>
       </div>
 
       <p class="muted small-note">При смене категории цены применяются к новым пакетам. История уже купленных пакетов не меняется.</p>
@@ -252,12 +303,14 @@ function renderHourOptions(selectedHour) {
 
 function renderPriceTable(options, suffix) {
   const rows = (options || [])
-    .map((item) => `
+    .map(
+      (item) => `
       <tr>
         <td>${item.count}</td>
         <td>${formatMoney(getPriceValue(item))} ${suffix}</td>
       </tr>
-    `)
+    `
+    )
     .join("");
 
   return `

@@ -48,6 +48,10 @@ body {
   transition: background-color var(--transition), color var(--transition);
 }
 
+body.menu-open {
+  overflow: hidden;
+}
+
 h1,
 h2,
 h3 {
@@ -114,20 +118,22 @@ body[data-theme="light"] .topbar {
   min-height: 38px;
   padding: 0;
   border-radius: 10px;
-  display: grid;
-  place-items: center;
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
   background: var(--surface);
   border-color: var(--border);
 }
 
-.menu-toggle-icon {
-  width: 20px;
-  height: 20px;
-  fill: none;
-  stroke: currentcolor;
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+.menu-toggle-bar {
+  width: 16px;
+  height: 2px;
+  border-radius: 999px;
+  background: currentcolor;
+  display: block;
 }
 
 .topbar-menu {
@@ -756,6 +762,57 @@ input[type="radio"] {
   gap: 10px;
 }
 
+.settings-accordion {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.setting-collapse {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
+  overflow: hidden;
+}
+
+.setting-summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 12px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.setting-summary:hover {
+  background: var(--surface-hover);
+}
+
+.setting-summary::-webkit-details-marker {
+  display: none;
+}
+
+.setting-summary::after {
+  content: "+";
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.setting-collapse[open] .setting-summary::after {
+  content: "-";
+  color: var(--text);
+}
+
+.setting-collapse-body {
+  display: grid;
+  gap: 8px;
+  padding: 0 12px 12px;
+  border-top: 1px solid var(--border);
+}
+
 .setting-item {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -763,6 +820,13 @@ input[type="radio"] {
   background: var(--surface-soft);
   display: grid;
   gap: 8px;
+}
+
+.setting-collapse-body .setting-item {
+  border: 0;
+  border-radius: 0;
+  padding: 10px 0 0;
+  background: transparent;
 }
 
 .setting-inline {
