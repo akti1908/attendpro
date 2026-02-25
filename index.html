@@ -20,24 +20,39 @@
 </head>
 <body>
   <div class="app-shell">
-    <aside class="topbar" aria-label="Навигация">
-      <div class="topbar-head">
-        <h1 class="topbar-brand">AttendPro</h1>
-      </div>
-      <div id="topbar-menu" class="topbar-menu">
-        <nav class="nav-actions">
-          <button id="go-today" class="btn btn-primary">Журнал</button>
-          <button id="go-students" class="btn">Карточки</button>
-          <button id="go-groups" class="btn">Группы</button>
+    <header class="topbar" aria-label="Дополнительная навигация">
+      <button
+        id="menu-toggle"
+        class="menu-toggle"
+        type="button"
+        aria-label="Открыть дополнительное меню"
+        aria-controls="topbar-menu"
+        aria-expanded="false"
+      >
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
+
+      <h1 class="topbar-brand">AttendPro</h1>
+
+      <div id="topbar-menu" class="topbar-menu" role="dialog" aria-label="Дополнительное меню">
+        <nav class="nav-actions nav-actions-extra">
           <button id="go-calendar" class="btn">Календарь</button>
           <button id="go-stats" class="btn">Статистика</button>
           <button id="go-salary" class="btn">ЗП</button>
-          <button id="go-settings" class="btn">Настройки</button>
         </nav>
       </div>
-    </aside>
+    </header>
 
     <main class="app-main" id="app"></main>
+
+    <nav class="bottom-nav" aria-label="Основная навигация">
+      <button id="go-today" class="btn btn-primary">Журнал</button>
+      <button id="go-students" class="btn">Карточки</button>
+      <button id="go-groups" class="btn">Группы</button>
+      <button id="go-settings" class="btn">Настройки</button>
+    </nav>
   </div>
 
   <script src="config.js"></script>

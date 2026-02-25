@@ -14,7 +14,6 @@ const ALLOWED_THEMES = ["dark", "light"];
 const CLOUD_SYNC_DEBOUNCE_MS = 1200;
 const CLOUD_FETCH_TIMEOUT_MS = 15000;
 const AUTO_REPORT_CHECK_INTERVAL_MS = 30000;
-const MOBILE_LAYOUT_MAX_WIDTH = 980;
 const TELEGRAM_REPORT_MAX_LENGTH = 3900;
 const DEFAULT_SYNC_STATE = {
   pendingDataSync: false,
@@ -151,22 +150,21 @@ function bindTopbarMenu() {
   });
 
   document.addEventListener("click", (event) => {
-    if (!isMobileLayout()) return;
     const topbar = document.querySelector(".topbar");
     if (topbar && !topbar.contains(event.target)) {
       setTopbarMenuOpen(false);
     }
   });
 
-  window.addEventListener("resize", () => {
-    if (!isMobileLayout()) {
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
       setTopbarMenuOpen(false);
     }
   });
-}
 
-function isMobileLayout() {
-  return window.innerWidth <= MOBILE_LAYOUT_MAX_WIDTH;
+  window.addEventListener("resize", () => {
+    setTopbarMenuOpen(false);
+  });
 }
 
 function setTopbarMenuOpen(isOpen) {
@@ -178,7 +176,6 @@ function setTopbarMenuOpen(isOpen) {
 }
 
 function closeTopbarMenu() {
-  if (!isMobileLayout()) return;
   setTopbarMenuOpen(false);
 }
 
