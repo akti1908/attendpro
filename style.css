@@ -183,29 +183,29 @@ body[data-theme="light"] .bottom-nav {
   padding: 0;
   margin: 0 auto;
   border-radius: 999px;
-  border-color: rgba(148, 163, 184, 0.45);
-  background: transparent;
-  box-shadow: none;
+  border-color: var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
   font-size: 0.76rem;
   text-align: center;
   justify-content: center;
 }
 
 .bottom-nav .btn:hover {
-  background: transparent;
-  border-color: rgba(148, 163, 184, 0.35);
-  box-shadow: none;
+  background: var(--surface-hover);
+  border-color: rgba(148, 163, 184, 0.42);
+  box-shadow: var(--shadow-soft);
 }
 
 .bottom-nav .btn.btn-active {
-  background: transparent;
+  background: var(--accent-soft);
   color: var(--accent);
-  border-color: rgba(59, 130, 246, 0.38);
-  box-shadow: none;
+  border-color: rgba(59, 130, 246, 0.45);
+  box-shadow: 0 8px 18px rgba(59, 130, 246, 0.2);
 }
 
 .bottom-nav .btn.btn-active:hover {
-  background: transparent;
+  background: var(--accent-soft);
 }
 
 .nav-btn {
@@ -226,7 +226,7 @@ body[data-theme="light"] .bottom-nav {
 
 #menu-toggle[aria-expanded="true"] {
   border-color: rgba(59, 130, 246, 0.38);
-  background: transparent;
+  background: var(--accent-soft);
   color: var(--accent);
 }
 
