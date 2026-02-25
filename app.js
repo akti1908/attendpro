@@ -142,18 +142,19 @@ function bindTopNavigation() {
 
 function bindTopbarMenu() {
   const menuToggle = document.getElementById("menu-toggle");
+  const menuPanel = document.getElementById("topbar-menu");
   if (!menuToggle) return;
 
-  menuToggle.addEventListener("click", () => {
+  menuToggle.addEventListener("click", (event) => {
+    event.stopPropagation();
     const isOpen = document.body.classList.contains("menu-open");
     setTopbarMenuOpen(!isOpen);
   });
 
   document.addEventListener("click", (event) => {
-    const topbar = document.querySelector(".topbar");
-    if (topbar && !topbar.contains(event.target)) {
-      setTopbarMenuOpen(false);
-    }
+    const clickedToggle = menuToggle.contains(event.target);
+    const clickedMenuPanel = menuPanel ? menuPanel.contains(event.target) : false;
+    if (!clickedToggle && !clickedMenuPanel) setTopbarMenuOpen(false);
   });
 
   document.addEventListener("keydown", (event) => {

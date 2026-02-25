@@ -79,11 +79,11 @@ h3 {
   top: 0;
   left: 0;
   right: 0;
-  height: 64px;
+  height: 58px;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
+  justify-content: center;
+  padding: 10px 14px;
   border-bottom: 1px solid var(--border);
   background: rgba(15, 23, 42, 0.92);
   backdrop-filter: blur(10px);
@@ -96,50 +96,18 @@ body[data-theme="light"] .topbar {
 
 .topbar-brand {
   margin: 0;
-  font-size: 1.02rem;
+  font-size: 1rem;
   font-weight: 700;
   letter-spacing: -0.015em;
   color: var(--text);
-  opacity: 0.88;
-}
-
-.menu-toggle {
-  width: 40px;
-  height: 40px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface);
-  color: var(--text);
-  display: grid;
-  place-items: center;
-  gap: 4px;
-  padding: 0;
-  cursor: pointer;
-  transition: background-color var(--transition), border-color var(--transition), transform var(--transition);
-}
-
-.menu-toggle span {
-  width: 16px;
-  height: 2px;
-  border-radius: 2px;
-  background: currentcolor;
-  display: block;
-}
-
-.menu-toggle:hover {
-  background: var(--surface-hover);
-}
-
-.menu-toggle[aria-expanded="true"] {
-  border-color: rgba(59, 130, 246, 0.38);
-  background: var(--accent-soft);
+  opacity: 0.86;
 }
 
 .topbar-menu {
-  position: absolute;
-  top: calc(100% + 8px);
-  left: 14px;
-  width: min(300px, calc(100vw - 28px));
+  position: fixed;
+  right: max(12px, env(safe-area-inset-right));
+  bottom: calc(76px + env(safe-area-inset-bottom));
+  width: min(280px, calc(100vw - 24px));
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
@@ -163,7 +131,29 @@ body.menu-open .topbar-menu {
   gap: 6px;
 }
 
+.menu-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-start;
+}
+
+.menu-item-icon {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex: 0 0 auto;
+}
+
 body.is-auth-required .topbar {
+  display: none;
+}
+
+body.is-auth-required .topbar-menu {
   display: none;
 }
 
@@ -173,7 +163,7 @@ body.is-auth-required .topbar {
   right: 0;
   bottom: 0;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 8px;
   padding: 10px max(12px, env(safe-area-inset-left)) calc(10px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-right));
   border-top: 1px solid var(--border);
@@ -187,12 +177,33 @@ body[data-theme="light"] .bottom-nav {
 }
 
 .bottom-nav .btn {
-  min-height: 44px;
-  padding: 8px 6px;
+  min-height: 42px;
+  padding: 8px 4px;
   border-radius: 10px;
-  font-size: 0.8rem;
+  font-size: 0.76rem;
   text-align: center;
   justify-content: center;
+}
+
+.nav-btn {
+  display: grid;
+  place-items: center;
+}
+
+.nav-icon {
+  width: 21px;
+  height: 21px;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+#menu-toggle[aria-expanded="true"] {
+  border-color: rgba(59, 130, 246, 0.38);
+  background: var(--accent-soft);
 }
 
 body.is-auth-required .bottom-nav {
@@ -828,7 +839,7 @@ input[type="radio"] {
   }
 
   .topbar-menu {
-    width: 320px;
+    width: 300px;
   }
 
   .app-main {
@@ -838,7 +849,7 @@ input[type="radio"] {
 
 @media (max-width: 980px) {
   .topbar {
-    height: 60px;
+    height: 56px;
     padding: 10px 12px;
   }
 
@@ -847,8 +858,9 @@ input[type="radio"] {
   }
 
   .topbar-menu {
-    left: 12px;
-    width: min(280px, calc(100vw - 24px));
+    right: max(10px, env(safe-area-inset-right));
+    bottom: calc(70px + env(safe-area-inset-bottom));
+    width: min(268px, calc(100vw - 20px));
   }
 
   .bottom-nav {
