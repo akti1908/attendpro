@@ -608,6 +608,26 @@ input[type="radio"] {
   gap: 8px;
 }
 
+.setting-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-days {
+  grid-template-columns: repeat(4, minmax(58px, 1fr));
+}
+
+.settings-days label {
+  justify-content: flex-start;
+  padding-inline: 8px;
+}
+
+.settings-time-range label {
+  display: grid;
+  gap: 4px;
+}
+
 .small-note {
   font-size: 0.82rem;
 }
@@ -873,6 +893,10 @@ input[type="radio"] {
 }
 
 @media (max-width: 520px) {
+  .settings-days {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .stats-grid {
     grid-template-columns: 1fr;
   }

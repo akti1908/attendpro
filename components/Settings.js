@@ -5,6 +5,24 @@ export function renderSettings(root, ctx) {
   const nextTheme = ctx.state.theme === "dark" ? "light" : "dark";
   const currentEmail = String(ctx.currentUser?.email || "-");
 
+  const workSchedule = settings.workSchedule || {
+    days: [1, 2, 3, 4, 5, 6, 0],
+    startHour: 0,
+    endHour: 23
+  };
+  const workDays = Array.isArray(workSchedule.days) ? workSchedule.days.map((day) => Number(day)) : [];
+  const workStartHour = Number.isInteger(Number(workSchedule.startHour)) ? Number(workSchedule.startHour) : 0;
+  const workEndHour = Number.isInteger(Number(workSchedule.endHour)) ? Number(workSchedule.endHour) : 23;
+
+  const autoReport = settings.autoReport || {
+    enabled: false,
+    days: [],
+    hour: 18,
+    lastSentSlotKey: ""
+  };
+  const autoReportDays = Array.isArray(autoReport.days) ? autoReport.days.map((day) => Number(day)) : [];
+  const autoReportHour = Number.isInteger(Number(autoReport.hour)) ? Number(autoReport.hour) : 18;
+
   root.innerHTML = `
     <section class="card">
       <h2 class="section-title">Настройки</h2>
@@ -31,6 +49,57 @@ export function renderSettings(root, ctx) {
               return `<option value="${category}" ${selected}>Категория ${category}</option>`;
             }).join("")}
           </select>
+        </div>
+
+        <div class="setting-item">
+          <span class="muted">График работы</span>
+          <div class="days settings-days">
+            ${ctx.weekDays.map((day) => `
+              <label>
+                <input type="checkbox" name="work-day" value="${day.jsDay}" ${workDays.includes(Number(day.jsDay)) ? "checked" : ""} />
+                ${day.label}
+              </label>
+            `).join("")}
+          </div>
+
+          <div class="session-actions settings-time-range">
+            <label>
+              <span class="muted">С</span>
+              <select id="work-start-hour">${renderHourOptions(workStartHour)}</select>
+            </label>
+            <label>
+              <span class="muted">До</span>
+              <select id="work-end-hour">${renderHourOptions(workEndHour)}</select>
+            </label>
+          </div>
+
+          <button id="settings-save-work-schedule" class="btn small-btn" type="button">Сохранить график</button>
+          <p id="settings-work-schedule-message" class="muted small-note"></p>
+        </div>
+
+        <div class="setting-item">
+          <span class="muted">Автоотчет в Telegram</span>
+          <label class="setting-inline" for="auto-report-enabled">
+            <input id="auto-report-enabled" type="checkbox" ${autoReport.enabled ? "checked" : ""} />
+            <span>Включить автоматическую отправку</span>
+          </label>
+
+          <div class="days settings-days">
+            ${ctx.weekDays.map((day) => `
+              <label>
+                <input type="checkbox" name="auto-report-day" value="${day.jsDay}" ${autoReportDays.includes(Number(day.jsDay)) ? "checked" : ""} />
+                ${day.label}
+              </label>
+            `).join("")}
+          </div>
+
+          <label for="auto-report-hour" class="muted">Час отправки</label>
+          <select id="auto-report-hour">
+            ${renderHourOptions(autoReportHour)}
+          </select>
+
+          <button id="settings-save-auto-report" class="btn small-btn" type="button">Сохранить автоотчет</button>
+          <p id="settings-auto-report-message" class="muted small-note"></p>
         </div>
 
         <div class="setting-item">
@@ -79,6 +148,79 @@ export function renderSettings(root, ctx) {
     ctx.actions.logoutUser();
   });
 
+  root.querySelector("#settings-save-work-schedule")?.addEventListener("click", () => {
+    const checkedDays = Array.from(root.querySelectorAll("input[name='work-day']:checked"));
+    const days = checkedDays
+      .map((input) => Number(input.value))
+      .filter((day) => Number.isInteger(day) && day >= 0 && day <= 6);
+    const startHour = Number(root.querySelector("#work-start-hour")?.value ?? workStartHour);
+    const endHour = Number(root.querySelector("#work-end-hour")?.value ?? workEndHour);
+
+    const message = root.querySelector("#settings-work-schedule-message");
+    if (!days.length) {
+      if (message) {
+        message.textContent = "Выберите хотя бы один рабочий день.";
+        message.classList.add("auth-error");
+        message.classList.remove("auth-success");
+      }
+      return;
+    }
+
+    if (endHour < startHour) {
+      if (message) {
+        message.textContent = "Время окончания не может быть раньше времени начала.";
+        message.classList.add("auth-error");
+        message.classList.remove("auth-success");
+      }
+      return;
+    }
+
+    ctx.actions.setWorkScheduleSettings({
+      days,
+      startHour,
+      endHour
+    });
+
+    if (message) {
+      message.textContent = `График сохранен: ${String(startHour).padStart(2, "0")}:00-${String(endHour).padStart(2, "0")}:00`;
+      message.classList.remove("auth-error");
+      message.classList.add("auth-success");
+    }
+  });
+
+  root.querySelector("#settings-save-auto-report")?.addEventListener("click", () => {
+    const enabled = Boolean(root.querySelector("#auto-report-enabled")?.checked);
+    const checkedDays = Array.from(root.querySelectorAll("input[name='auto-report-day']:checked"));
+    const days = checkedDays
+      .map((input) => Number(input.value))
+      .filter((day) => Number.isInteger(day) && day >= 0 && day <= 6);
+    const hour = Number(root.querySelector("#auto-report-hour")?.value ?? autoReportHour);
+
+    const message = root.querySelector("#settings-auto-report-message");
+    if (enabled && !days.length) {
+      if (message) {
+        message.textContent = "Выберите хотя бы один день недели для автоотчета.";
+        message.classList.add("auth-error");
+        message.classList.remove("auth-success");
+      }
+      return;
+    }
+
+    ctx.actions.setAutoReportSettings({
+      enabled,
+      days,
+      hour
+    });
+
+    if (message) {
+      message.textContent = enabled
+        ? `Автоотчет сохранен: ${String(hour).padStart(2, "0")}:00`
+        : "Автоотчет отключен.";
+      message.classList.remove("auth-error");
+      message.classList.add("auth-success");
+    }
+  });
+
   root.querySelector("#settings-sync-now")?.addEventListener("click", async (event) => {
     const button = event.currentTarget;
     const message = root.querySelector("#settings-message");
@@ -98,6 +240,14 @@ export function renderSettings(root, ctx) {
 
     button.disabled = !ctx.isCloudConfigured;
   });
+}
+
+function renderHourOptions(selectedHour) {
+  return Array.from({ length: 24 }, (_, hour) => {
+    const selected = hour === Number(selectedHour) ? "selected" : "";
+    const value = String(hour).padStart(2, "0");
+    return `<option value="${hour}" ${selected}>${value}:00</option>`;
+  }).join("");
 }
 
 function renderPriceTable(options, suffix) {

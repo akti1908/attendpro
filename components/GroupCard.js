@@ -1,5 +1,9 @@
-﻿// Карточка группы.
+// Карточка группы.
 export function renderGroupCard(group, ctx) {
+  const allowedWorkDays = normalizeAllowedDays(ctx.workSchedule?.days);
+  const availableHours = resolveAvailableHours(
+    typeof ctx.getWorkHoursForDays === "function" ? ctx.getWorkHoursForDays(group.scheduleDays) : ctx.workHours
+  );
   const upcomingSessions = group.sessions
     .slice()
     .sort((a, b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`))
@@ -8,7 +12,8 @@ export function renderGroupCard(group, ctx) {
     .join("");
 
   const selectedHour = Number(String(group.time || "00:00").slice(0, 2));
-  const dayInputs = renderDayCheckboxes(ctx.weekDays, group.scheduleDays, `group-edit-day-${group.id}`);
+  const resolvedHour = resolveSelectedHour(selectedHour, availableHours);
+  const dayInputs = renderDayCheckboxes(ctx.weekDays, group.scheduleDays, `group-edit-day-${group.id}`, allowedWorkDays);
   const safeGroupName = escapeHtml(group.name);
   const safeMembers = group.students.map((student) => escapeHtml(student.name)).join(", ");
 
@@ -25,7 +30,7 @@ export function renderGroupCard(group, ctx) {
       <div class="card-edit-panel is-hidden" data-group-edit-panel="${group.id}">
         <div class="form-row">
           <input data-group-field="name" type="text" value="${escapeAttr(group.name)}" placeholder="Название группы" />
-          <select data-group-field="hour">${renderHourOptions(selectedHour)}</select>
+          <select data-group-field="hour">${renderHourOptions(availableHours, resolvedHour)}</select>
           <input data-group-field="students" type="text" value="${escapeAttr(group.students.map((student) => student.name).join(", "))}" placeholder="Ученики (через запятую)" />
         </div>
 
@@ -47,6 +52,10 @@ export function renderGroupCard(group, ctx) {
 
 // Экран управления группами.
 export function renderGroupsManager(root, ctx) {
+  const allowedWorkDays = normalizeAllowedDays(ctx.workSchedule?.days);
+  const availableHours = resolveAvailableHours(ctx.workHours);
+  const defaultHour = getDefaultHour(availableHours);
+
   root.innerHTML = `
     <section class="grid grid-2">
       <div class="card">
@@ -54,10 +63,10 @@ export function renderGroupsManager(root, ctx) {
         <form id="group-form">
           <div class="form-row">
             <input required name="name" placeholder="Название группы" />
-            <select required name="hour">${renderHourOptions()}</select>
+            <select required name="hour">${renderHourOptions(availableHours, defaultHour)}</select>
             <input required name="students" placeholder="Ученики (через запятую)" />
           </div>
-          <div id="group-days" class="days">${renderDayCheckboxes(ctx.weekDays, [], "group-day")}</div>
+          <div id="group-days" class="days">${renderDayCheckboxes(ctx.weekDays, [], "group-day", allowedWorkDays)}</div>
           <button class="btn btn-primary" type="submit">Добавить группу</button>
         </form>
       </div>
@@ -181,25 +190,61 @@ function resetGroupEditPanel(card) {
   });
 }
 
-function renderDayCheckboxes(weekDays, selected = [], inputName = "group-day") {
+function renderDayCheckboxes(weekDays, selected = [], inputName = "group-day", allowedDays = []) {
+  const allowedSet = new Set(normalizeAllowedDays(allowedDays));
+  const selectedSet = new Set((Array.isArray(selected) ? selected : []).map((item) => Number(item)));
+
   return weekDays
-    .map(
-      (day) => `
+    .map((day) => {
+      const isAllowed = !allowedSet.size || allowedSet.has(day.jsDay);
+      const checked = selectedSet.has(day.jsDay) && isAllowed ? "checked" : "";
+      const disabled = isAllowed ? "" : "disabled";
+      return `
       <label>
-        <input type="checkbox" data-day-input="1" name="${inputName}" value="${day.jsDay}" ${selected.includes(day.jsDay) ? "checked" : ""} /> ${day.label}
+        <input type="checkbox" data-day-input="1" name="${inputName}" value="${day.jsDay}" ${checked} ${disabled} /> ${day.label}
       </label>
-    `
-    )
+    `;
+    })
     .join("");
 }
 
-function renderHourOptions(selectedHour = 0) {
-  return Array.from({ length: 24 }, (_, hour) => {
-    const value = String(hour);
-    const label = `${String(hour).padStart(2, "0")}:00`;
-    const selected = Number(selectedHour) === hour ? "selected" : "";
-    return `<option value="${value}" ${selected}>${label}</option>`;
-  }).join("");
+function normalizeAllowedDays(allowedDays) {
+  const list = Array.isArray(allowedDays) ? allowedDays : [];
+  return list
+    .map((day) => Number(day))
+    .filter((day) => Number.isInteger(day) && day >= 0 && day <= 6);
+}
+
+function resolveAvailableHours(hoursSource) {
+  const source = Array.isArray(hoursSource) ? hoursSource : [];
+  const hours = source
+    .map((hour) => Number(hour))
+    .filter((hour) => Number.isInteger(hour) && hour >= 0 && hour <= 23)
+    .sort((a, b) => a - b);
+  if (hours.length) return [...new Set(hours)];
+  return Array.from({ length: 24 }, (_, hour) => hour);
+}
+
+function getDefaultHour(availableHours) {
+  if (availableHours.includes(10)) return 10;
+  return availableHours[0] ?? 0;
+}
+
+function resolveSelectedHour(selectedHour, availableHours) {
+  const hour = Number(selectedHour);
+  if (Number.isInteger(hour) && availableHours.includes(hour)) return hour;
+  return getDefaultHour(availableHours);
+}
+
+function renderHourOptions(availableHours, selectedHour = 0) {
+  return resolveAvailableHours(availableHours)
+    .map((hour) => {
+      const value = String(hour);
+      const label = `${String(hour).padStart(2, "0")}:00`;
+      const selected = Number(selectedHour) === hour ? "selected" : "";
+      return `<option value="${value}" ${selected}>${label}</option>`;
+    })
+    .join("");
 }
 
 function hourToTimeString(hourValue) {

@@ -54,7 +54,9 @@ export function renderSession(entry, options = {}) {
   }
 
   const session = entry.data;
-  const hasAnyMarked = entry.students.some((student) => Boolean(session.attendance[student.id]));
+  const markedCount = entry.students.filter((student) => Boolean(session.attendance[student.id])).length;
+  const hasAnyMarked = markedCount > 0;
+  const allMarked = entry.students.length > 0 && markedCount >= entry.students.length;
 
   const attendanceControls = entry.students
     .map((student) => {
@@ -86,10 +88,10 @@ export function renderSession(entry, options = {}) {
     <article class="session group ${hasAnyMarked ? "session-marked" : ""}" data-session-card="${session.id}" data-marked="${hasAnyMarked ? "1" : "0"}" data-status="group">
       <div class="session-head">
         <div><strong>${session.time}</strong> - ${escapeHtml(entry.groupName)}</div>
-        <button class="btn small-btn" ${(hasAnyMarked && editable) ? "" : "disabled"} data-action="toggle-session-edit" data-session-id="${session.id}">Редактировать</button>
+        <button class="btn small-btn" ${(allMarked && editable) ? "" : "disabled"} data-action="toggle-session-edit" data-session-id="${session.id}">Редактировать</button>
       </div>
       ${hasAnyMarked ? `<div class="marked-note">Есть проставленные отметки</div>` : ""}
-      <div class="${hasAnyMarked ? "is-hidden" : ""}" data-editable-controls="1">
+      <div class="${allMarked ? "is-hidden" : ""}" data-editable-controls="1">
         ${attendanceControls}
       </div>
     </article>

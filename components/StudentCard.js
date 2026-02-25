@@ -8,6 +8,10 @@ export function renderStudentCard(student, ctx) {
   const packageHistory = renderPackageHistory(student, ctx);
   const isSplit = student.trainingType === "split";
   const isMiniGroup = student.trainingType === "mini_group";
+  const allowedWorkDays = normalizeAllowedDays(ctx.workSchedule?.days);
+  const availableHours = resolveAvailableHours(
+    typeof ctx.getWorkHoursForDays === "function" ? ctx.getWorkHoursForDays(student.scheduleDays) : ctx.workHours
+  );
 
   const upcomingSessions = student.sessions
     .slice()
@@ -16,7 +20,12 @@ export function renderStudentCard(student, ctx) {
     .map((session) => `<li>${ctx.formatDate(session.date)} в ${session.time} - <strong>${escapeHtml(session.status)}</strong></li>`)
     .join("");
 
-  const editDayInputs = renderDayCheckboxes(ctx.weekDays, student.scheduleDays, `student-edit-day-${student.id}`);
+  const editDayInputs = renderDayCheckboxes(
+    ctx.weekDays,
+    student.scheduleDays,
+    `student-edit-day-${student.id}`,
+    allowedWorkDays
+  );
   const typeLabel = isSplit ? "Сплит" : isMiniGroup ? "Мини-группа" : "Персональная";
   const participantsLabel = isSplit
     ? `${student.participants[0] || ""} + ${student.participants[1] || ""}`
@@ -33,6 +42,7 @@ export function renderStudentCard(student, ctx) {
 
   const activePackageCategory = String(student.activePackage?.trainerCategory || "I");
   const selectedHour = Number(String(student.time || "00:00").slice(0, 2));
+  const resolvedHour = resolveSelectedHour(selectedHour, availableHours);
   const miniMembersValue = escapeAttr((student.participants || []).join(", "));
   const primaryFieldValue = isMiniGroup
     ? (student.name || "")
@@ -80,7 +90,7 @@ export function renderStudentCard(student, ctx) {
           ${isMiniGroup
             ? `<input data-student-field="mini-members" type="text" value="${miniMembersValue}" placeholder="Участники мини-группы через запятую (3-5)" />`
             : ""}
-          <select data-student-field="hour">${renderHourOptions(selectedHour)}</select>
+          <select data-student-field="hour">${renderHourOptions(availableHours, resolvedHour)}</select>
         </div>
 
         <div class="days mt-8" data-edit-days-container="${student.id}">
@@ -106,6 +116,10 @@ export function renderStudentCard(student, ctx) {
 
 // Экран управления карточками персональных/сплит/мини-групп тренировок.
 export function renderStudentsManager(root, ctx) {
+  const allowedWorkDays = normalizeAllowedDays(ctx.workSchedule?.days);
+  const availableHours = resolveAvailableHours(ctx.workHours);
+  const defaultHour = getDefaultHour(availableHours);
+
   root.innerHTML = `
     <section class="grid grid-2">
       <div class="card">
@@ -123,10 +137,10 @@ export function renderStudentsManager(root, ctx) {
             <select id="package-select" name="packageCount" required>
               ${renderPackageOptions(ctx.packageOptions.personal, 10, "personal")}
             </select>
-            <select required name="hour">${renderHourOptions()}</select>
+            <select required name="hour">${renderHourOptions(availableHours, defaultHour)}</select>
           </div>
 
-          <div id="student-days" class="days">${renderDayCheckboxes(ctx.weekDays, [], "student-day")}</div>
+          <div id="student-days" class="days">${renderDayCheckboxes(ctx.weekDays, [], "student-day", allowedWorkDays)}</div>
           <button class="btn btn-primary" type="submit">Создать карточку</button>
         </form>
       </div>
@@ -328,15 +342,21 @@ function resetStudentEditPanel(card) {
   });
 }
 
-function renderDayCheckboxes(weekDays, selected = [], inputName = "student-day") {
+function renderDayCheckboxes(weekDays, selected = [], inputName = "student-day", allowedDays = []) {
+  const allowedSet = new Set(normalizeAllowedDays(allowedDays));
+  const selectedSet = new Set((Array.isArray(selected) ? selected : []).map((item) => Number(item)));
+
   return weekDays
-    .map(
-      (day) => `
+    .map((day) => {
+      const isAllowed = !allowedSet.size || allowedSet.has(day.jsDay);
+      const checked = selectedSet.has(day.jsDay) && isAllowed ? "checked" : "";
+      const disabled = isAllowed ? "" : "disabled";
+      return `
       <label>
-        <input type="checkbox" data-day-input="1" name="${inputName}" value="${day.jsDay}" ${selected.includes(day.jsDay) ? "checked" : ""} /> ${day.label}
+        <input type="checkbox" data-day-input="1" name="${inputName}" value="${day.jsDay}" ${checked} ${disabled} /> ${day.label}
       </label>
-    `
-    )
+    `;
+    })
     .join("");
 }
 
@@ -380,13 +400,43 @@ function renderPackageHistory(student, ctx) {
     .join("");
 }
 
-function renderHourOptions(selectedHour = 0) {
-  return Array.from({ length: 24 }, (_, hour) => {
-    const value = String(hour);
-    const label = `${String(hour).padStart(2, "0")}:00`;
-    const selected = Number(selectedHour) === hour ? "selected" : "";
-    return `<option value="${value}" ${selected}>${label}</option>`;
-  }).join("");
+function normalizeAllowedDays(allowedDays) {
+  const list = Array.isArray(allowedDays) ? allowedDays : [];
+  return list
+    .map((day) => Number(day))
+    .filter((day) => Number.isInteger(day) && day >= 0 && day <= 6);
+}
+
+function resolveAvailableHours(hoursSource) {
+  const source = Array.isArray(hoursSource) ? hoursSource : [];
+  const hours = source
+    .map((hour) => Number(hour))
+    .filter((hour) => Number.isInteger(hour) && hour >= 0 && hour <= 23)
+    .sort((a, b) => a - b);
+  if (hours.length) return [...new Set(hours)];
+  return Array.from({ length: 24 }, (_, hour) => hour);
+}
+
+function getDefaultHour(availableHours) {
+  if (availableHours.includes(10)) return 10;
+  return availableHours[0] ?? 0;
+}
+
+function resolveSelectedHour(selectedHour, availableHours) {
+  const hour = Number(selectedHour);
+  if (Number.isInteger(hour) && availableHours.includes(hour)) return hour;
+  return getDefaultHour(availableHours);
+}
+
+function renderHourOptions(availableHours, selectedHour = 0) {
+  return resolveAvailableHours(availableHours)
+    .map((hour) => {
+      const value = String(hour);
+      const label = `${String(hour).padStart(2, "0")}:00`;
+      const selected = Number(selectedHour) === hour ? "selected" : "";
+      return `<option value="${value}" ${selected}>${label}</option>`;
+    })
+    .join("");
 }
 
 function parseParticipantsInput(value) {

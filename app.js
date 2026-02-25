@@ -13,6 +13,7 @@ const APP_VERSION = 5;
 const ALLOWED_THEMES = ["dark", "light"];
 const CLOUD_SYNC_DEBOUNCE_MS = 1200;
 const CLOUD_FETCH_TIMEOUT_MS = 15000;
+const AUTO_REPORT_CHECK_INTERVAL_MS = 30000;
 const MOBILE_LAYOUT_MAX_WIDTH = 980;
 const TELEGRAM_REPORT_MAX_LENGTH = 3900;
 const DEFAULT_SYNC_STATE = {
@@ -45,7 +46,18 @@ const DEFAULT_TRAINER_CATEGORY = "I";
 const DEFAULT_COACH_PERCENT = 50;
 const DEFAULT_USER_SETTINGS = {
   trainerCategory: DEFAULT_TRAINER_CATEGORY,
-  coachPercent: DEFAULT_COACH_PERCENT
+  coachPercent: DEFAULT_COACH_PERCENT,
+  workSchedule: {
+    days: [1, 2, 3, 4, 5, 6, 0],
+    startHour: 0,
+    endHour: 23
+  },
+  autoReport: {
+    enabled: false,
+    days: [],
+    hour: 18,
+    lastSentSlotKey: ""
+  }
 };
 const CATEGORY_PRICE_TABLES = {
   personal: {
@@ -87,6 +99,7 @@ let cloudSyncTimer = null;
 let cloudSyncInFlight = false;
 let cloudSyncQueued = false;
 let swRefreshTriggered = false;
+let autoReportTimer = null;
 
 const root = document.getElementById("app");
 bindTopbarMenu();
@@ -95,6 +108,7 @@ bindSyncLifecycleHandlers();
 applyTheme(state.theme);
 renderApp();
 void bootstrapCloudSync();
+startAutoReportScheduler();
 registerServiceWorker();
 
 function bindTopNavigation() {
@@ -180,6 +194,54 @@ function bindSyncLifecycleHandlers() {
   });
 }
 
+function startAutoReportScheduler() {
+  if (autoReportTimer) {
+    clearInterval(autoReportTimer);
+    autoReportTimer = null;
+  }
+
+  autoReportTimer = setInterval(() => {
+    void checkScheduledTelegramReport();
+  }, AUTO_REPORT_CHECK_INTERVAL_MS);
+
+  void checkScheduledTelegramReport();
+}
+
+async function checkScheduledTelegramReport() {
+  if (!isAuthenticated()) return;
+
+  const ownerId = getCurrentUserId();
+  if (!ownerId) return;
+
+  const settings = getUserSettings(ownerId);
+  const autoReport = settings.autoReport || normalizeAutoReportSettings();
+  if (!autoReport.enabled) return;
+  if (!Array.isArray(autoReport.days) || !autoReport.days.length) return;
+
+  const now = new Date();
+  const currentDay = now.getDay();
+  if (!autoReport.days.includes(currentDay)) return;
+
+  const currentHour = now.getHours();
+  if (currentHour !== Number(autoReport.hour)) return;
+
+  const slotKey = `${toISODate(now)}__${String(currentHour).padStart(2, "0")}`;
+  if (autoReport.lastSentSlotKey === slotKey) return;
+
+  const result = await sendTodayReportToTelegram(toISODate(now));
+  if (!result?.ok) {
+    return;
+  }
+
+  setUserSettingsForUser(ownerId, {
+    autoReport: {
+      ...autoReport,
+      lastSentSlotKey: slotKey
+    }
+  });
+  saveState({ dataChanged: true });
+}
+
 function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
 
@@ -248,6 +310,56 @@ function setTrainerCategory(categoryValue) {
   });
   saveState({ dataChanged: true });
   renderApp();
+}
+
+function setWorkScheduleSettings(payload) {
+  const ownerId = getCurrentUserId();
+  if (!ownerId) return;
+
+  const current = getUserSettings(ownerId);
+  const currentWorkSchedule = normalizeWorkSchedule(current.workSchedule || {});
+  const nextWorkSchedule = normalizeWorkSchedule({
+    ...currentWorkSchedule,
+    ...(payload || {})
+  });
+
+  const hasChanges = JSON.stringify(currentWorkSchedule) !== JSON.stringify(nextWorkSchedule);
+  if (!hasChanges) return;
+
+  setUserSettingsForUser(ownerId, {
+    workSchedule: nextWorkSchedule
+  });
+  saveState({ dataChanged: true });
+  renderApp();
+}
+
+function setAutoReportSettings(payload) {
+  const ownerId = getCurrentUserId();
+  if (!ownerId) return;
+
+  const current = getUserSettings(ownerId);
+  const currentAutoReport = normalizeAutoReportSettings(current.autoReport || {});
+  const nextAutoReport = normalizeAutoReportSettings({
+    ...currentAutoReport,
+    ...(payload || {})
+  });
+
+  const daysChanged = JSON.stringify(currentAutoReport.days) !== JSON.stringify(nextAutoReport.days);
+  const hourChanged = Number(currentAutoReport.hour) !== Number(nextAutoReport.hour);
+  const enabledChanged = currentAutoReport.enabled !== nextAutoReport.enabled;
+  if (daysChanged || hourChanged || enabledChanged) {
+    nextAutoReport.lastSentSlotKey = "";
+  }
+
+  const hasChanges = JSON.stringify(currentAutoReport) !== JSON.stringify(nextAutoReport);
+  if (!hasChanges) return;
+
+  setUserSettingsForUser(ownerId, {
+    autoReport: nextAutoReport
+  });
+  saveState({ dataChanged: true });
+  renderApp();
+  void checkScheduledTelegramReport();
 }
 
 async function syncCloudNow() {
@@ -759,11 +871,19 @@ function buildScopedStateForContext() {
 function buildContext() {
   const scopedState = buildScopedStateForContext();
   const userSettings = getUserSettings();
+  const workSchedule = normalizeWorkSchedule(userSettings.workSchedule);
+  const workHours = getWorkHoursFromSchedule(workSchedule);
   const packageOptions = getPackageOptionsByCategory(userSettings.trainerCategory);
   return {
     state: scopedState,
     currentUser: getCurrentUser(),
     userSettings,
+    workSchedule,
+    workHours,
+    getWorkHoursForDays: (scheduleDays = []) => {
+      const hours = getAvailableWorkHours(workSchedule, scheduleDays);
+      return hours.length ? hours : [...workHours];
+    },
     trainerCategories: TRAINER_CATEGORIES,
     weekDays,
     packageOptions,
@@ -804,6 +924,8 @@ function buildContext() {
       importBackupFromFile,
       setTheme,
       setTrainerCategory,
+      setWorkScheduleSettings,
+      setAutoReportSettings,
       syncCloudNow,
       sendTodayReportToTelegram,
       registerUser,
@@ -885,7 +1007,7 @@ function normalizeState(input) {
   next.auth = normalizeAuth(next.auth, next.users);
   next.settingsByUser = normalizeSettingsByUser(next.settingsByUser);
   if (next.auth.currentUserId && !next.settingsByUser[next.auth.currentUserId]) {
-    next.settingsByUser[next.auth.currentUserId] = { ...DEFAULT_USER_SETTINGS };
+    next.settingsByUser[next.auth.currentUserId] = createDefaultUserSettings();
   }
   const legacySync = normalizeSyncState(next.sync);
   next.syncByUser = normalizeSyncByUser(next.syncByUser);
@@ -1291,15 +1413,102 @@ function normalizeCoachPercent(value) {
   return Math.max(1, Math.min(100, Math.round(numeric)));
 }
 
-function normalizeUserSettings(rawSettings) {
+function normalizeWorkHour(value, fallbackHour) {
+  const hour = Number(value);
+  if (!Number.isInteger(hour) || hour < 0 || hour > 23) return fallbackHour;
+  return hour;
+}
+
+function normalizeWorkSchedule(rawWorkSchedule = {}) {
+  const defaultDays = weekDays.map((item) => item.jsDay);
+  const days = sanitizeWeekDays(rawWorkSchedule?.days, defaultDays);
+  let startHour = normalizeWorkHour(rawWorkSchedule?.startHour, 0);
+  let endHour = normalizeWorkHour(rawWorkSchedule?.endHour, 23);
+  if (endHour < startHour) {
+    const swap = startHour;
+    startHour = endHour;
+    endHour = swap;
+  }
+
   return {
-    trainerCategory: normalizeTrainerCategory(rawSettings?.trainerCategory),
-    coachPercent: normalizeCoachPercent(rawSettings?.coachPercent)
+    days,
+    startHour,
+    endHour
   };
 }
 
+function getWorkHoursFromSchedule(workSchedule) {
+  const normalized = normalizeWorkSchedule(workSchedule);
+  const hours = [];
+  for (let hour = normalized.startHour; hour <= normalized.endHour; hour += 1) {
+    hours.push(hour);
+  }
+  return hours.length ? hours : [normalized.startHour];
+}
+
+function getAvailableWorkHours(workSchedule, scheduleDays = []) {
+  const normalized = normalizeWorkSchedule(workSchedule);
+  const selectedDays = sanitizeWeekDays(scheduleDays, []);
+  if (selectedDays.length && !selectedDays.some((day) => normalized.days.includes(day))) {
+    return [];
+  }
+  return getWorkHoursFromSchedule(normalized);
+}
+
+function isScheduleWithinWorkDays(scheduleDays, workSchedule) {
+  const normalized = normalizeWorkSchedule(workSchedule);
+  return scheduleDays.every((day) => normalized.days.includes(day));
+}
+
+function isTimeWithinWorkHours(time, workSchedule) {
+  const normalized = normalizeWorkSchedule(workSchedule);
+  const hour = Number(String(time || "00:00").slice(0, 2));
+  return Number.isInteger(hour) && hour >= normalized.startHour && hour <= normalized.endHour;
+}
+
+function normalizeAutoReportHour(value) {
+  const hour = Number(value);
+  if (!Number.isInteger(hour) || hour < 0 || hour > 23) return 18;
+  return hour;
+}
+
+function normalizeAutoReportSlotKey(value) {
+  const slotKey = String(value || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}__\d{2}$/.test(slotKey)) {
+    return slotKey;
+  }
+  return "";
+}
+
+function normalizeAutoReportSettings(rawAutoReport = {}) {
+  const days = sanitizeWeekDays(rawAutoReport?.days, []);
+  const hour = normalizeAutoReportHour(rawAutoReport?.hour);
+  const enabled = Boolean(rawAutoReport?.enabled) && days.length > 0;
+  const lastSentSlotKey = normalizeAutoReportSlotKey(rawAutoReport?.lastSentSlotKey);
+
+  return {
+    enabled,
+    days,
+    hour,
+    lastSentSlotKey
+  };
+}
+
+function normalizeUserSettings(rawSettings) {
+  return {
+    trainerCategory: normalizeTrainerCategory(rawSettings?.trainerCategory),
+    coachPercent: normalizeCoachPercent(rawSettings?.coachPercent),
+    workSchedule: normalizeWorkSchedule(rawSettings?.workSchedule),
+    autoReport: normalizeAutoReportSettings(rawSettings?.autoReport)
+  };
+}
+
+function createDefaultUserSettings() {
+  return normalizeUserSettings(DEFAULT_USER_SETTINGS);
+}
+
 function getUserSettings(userId = getCurrentUserId()) {
-  if (!userId) return { ...DEFAULT_USER_SETTINGS };
+  if (!userId) return createDefaultUserSettings();
   state.settingsByUser = normalizeSettingsByUser(state.settingsByUser);
   return normalizeUserSettings(state.settingsByUser[userId] || DEFAULT_USER_SETTINGS);
 }
@@ -1694,9 +1903,7 @@ function buildEmptyAccountData() {
     students: [],
     groups: [],
     salaryClosures: [],
-    settings: {
-      ...DEFAULT_USER_SETTINGS
-    },
+    settings: createDefaultUserSettings(),
     syncMeta: {
       dataUpdatedAt: nowISO
     }
@@ -2004,6 +2211,7 @@ function isDateLocked(dateISO) {
 function addStudent(payload) {
   const ownerId = getCurrentUserId();
   if (!ownerId) return;
+  const workSchedule = getUserSettings(ownerId).workSchedule;
 
   const trainingType = normalizeTrainingType(payload.trainingType);
   const primaryName = String(payload.primaryName || "").trim();
@@ -2032,6 +2240,16 @@ function addStudent(payload) {
 
   if (!scheduleDays.length) {
     alert("Выберите хотя бы один день недели.");
+    return;
+  }
+
+  if (!isScheduleWithinWorkDays(scheduleDays, workSchedule)) {
+    alert("Выбраны дни вне вашего графика работы.");
+    return;
+  }
+
+  if (!isTimeWithinWorkHours(time, workSchedule)) {
+    alert("Выбрано время вне вашего графика работы.");
     return;
   }
 
@@ -2100,12 +2318,23 @@ function updateStudentSchedule(studentId, scheduleDays) {
   const ownerId = getCurrentUserId();
   const student = state.students.find((item) => item.id === studentId && item.ownerId === ownerId);
   if (!student) return;
+  const workSchedule = getUserSettings(ownerId).workSchedule;
 
   const nextDays = sanitizeWeekDays(scheduleDays);
   if (!nextDays.length) {
     alert("Выберите хотя бы один день недели.");
     return;
   }
+  if (!isScheduleWithinWorkDays(nextDays, workSchedule)) {
+    alert("Выбраны дни вне вашего графика работы.");
+    return;
+  }
+
+  if (!isTimeWithinWorkHours(student.time, workSchedule)) {
+    alert("Текущее время карточки вне вашего графика работы. Измените время.");
+    return;
+  }
+
   student.scheduleDays = nextDays;
   rebuildStudentPlannedSessions(student, getTodayISO(), { forceRegenerateFuture: true });
 
@@ -2117,6 +2346,7 @@ function updateStudentCardData(studentId, payload) {
   const ownerId = getCurrentUserId();
   const student = state.students.find((item) => item.id === studentId && item.ownerId === ownerId);
   if (!student) return;
+  const workSchedule = getUserSettings(ownerId).workSchedule;
 
   const primaryName = String(payload?.primaryName || "").trim();
   const secondaryName = String(payload?.secondaryName || "").trim();
@@ -2131,6 +2361,16 @@ function updateStudentCardData(studentId, payload) {
 
   if (!scheduleDays.length) {
     alert("Выберите хотя бы один день недели.");
+    return;
+  }
+
+  if (!isScheduleWithinWorkDays(scheduleDays, workSchedule)) {
+    alert("Выбраны дни вне вашего графика работы.");
+    return;
+  }
+
+  if (!isTimeWithinWorkHours(time, workSchedule)) {
+    alert("Выбрано время вне вашего графика работы.");
     return;
   }
 
@@ -2183,6 +2423,7 @@ function deleteStudentCard(studentId) {
 function addGroup(payload) {
   const ownerId = getCurrentUserId();
   if (!ownerId) return;
+  const workSchedule = getUserSettings(ownerId).workSchedule;
 
   const name = String(payload.name || "").trim();
   const scheduleDays = sanitizeWeekDays(payload.scheduleDays);
@@ -2196,6 +2437,16 @@ function addGroup(payload) {
 
   if (!scheduleDays.length) {
     alert("Выберите хотя бы один день недели.");
+    return;
+  }
+
+  if (!isScheduleWithinWorkDays(scheduleDays, workSchedule)) {
+    alert("Выбраны дни вне вашего графика работы.");
+    return;
+  }
+
+  if (!isTimeWithinWorkHours(time, workSchedule)) {
+    alert("Выбрано время вне вашего графика работы.");
     return;
   }
 
@@ -2233,6 +2484,7 @@ function updateGroupCardData(groupId, payload) {
   const ownerId = getCurrentUserId();
   const group = state.groups.find((item) => item.id === groupId && item.ownerId === ownerId);
   if (!group) return;
+  const workSchedule = getUserSettings(ownerId).workSchedule;
 
   const name = String(payload?.name || "").trim();
   const scheduleDays = sanitizeWeekDays(payload?.scheduleDays);
@@ -2247,6 +2499,16 @@ function updateGroupCardData(groupId, payload) {
 
   if (!scheduleDays.length) {
     alert("Выберите хотя бы один день недели.");
+    return;
+  }
+
+  if (!isScheduleWithinWorkDays(scheduleDays, workSchedule)) {
+    alert("Выбраны дни вне вашего графика работы.");
+    return;
+  }
+
+  if (!isTimeWithinWorkHours(time, workSchedule)) {
+    alert("Выбрано время вне вашего графика работы.");
     return;
   }
 
