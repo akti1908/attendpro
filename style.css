@@ -166,14 +166,14 @@ body.is-auth-required .topbar-menu {
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 8px;
   padding: 10px max(12px, env(safe-area-inset-left)) calc(10px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-right));
-  border-top: 1px solid var(--border);
-  background: rgba(17, 24, 39, 0.96);
-  backdrop-filter: blur(10px);
+  border-top: 0;
+  background: transparent;
+  backdrop-filter: none;
   z-index: 35;
 }
 
 body[data-theme="light"] .bottom-nav {
-  background: rgba(255, 255, 255, 0.94);
+  background: transparent;
 }
 
 .bottom-nav .btn {
@@ -183,7 +183,7 @@ body[data-theme="light"] .bottom-nav {
   padding: 0;
   margin: 0 auto;
   border-radius: 999px;
-  border-color: transparent;
+  border-color: rgba(148, 163, 184, 0.45);
   background: transparent;
   box-shadow: none;
   font-size: 0.76rem;
