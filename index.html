@@ -20,14 +20,52 @@
 </head>
 <body>
   <div class="app-shell">
-    <header class="topbar" aria-label="Дополнительная навигация">
+    <header class="topbar" aria-label="Верхняя панель">
+      <button
+        id="menu-toggle"
+        class="btn menu-toggle"
+        type="button"
+        aria-label="Открыть меню"
+        title="Меню"
+        aria-controls="topbar-menu"
+        aria-expanded="false"
+      >
+        <svg class="menu-toggle-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 7h16M4 12h16M4 17h16"></path>
+        </svg>
+      </button>
       <h1 class="topbar-brand">AttendPro</h1>
     </header>
 
     <main class="app-main" id="app"></main>
 
-    <div id="topbar-menu" class="topbar-menu" role="dialog" aria-label="Дополнительное меню">
+    <div class="menu-overlay" aria-hidden="true"></div>
+
+    <aside id="topbar-menu" class="topbar-menu" role="dialog" aria-label="Меню приложения">
       <nav class="nav-actions nav-actions-extra">
+        <button id="go-today" class="btn menu-item">
+          <svg class="menu-item-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M7 3h10a2 2 0 0 1 2 2v15l-4-2-4 2-4-2-4 2V5a2 2 0 0 1 2-2h2"></path>
+            <path d="M8 8h8M8 12h8"></path>
+          </svg>
+          <span>Журнал</span>
+        </button>
+        <button id="go-students" class="btn menu-item">
+          <svg class="menu-item-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path>
+            <path d="M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"></path>
+          </svg>
+          <span>Карточки</span>
+        </button>
+        <button id="go-groups" class="btn menu-item">
+          <svg class="menu-item-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+            <path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"></path>
+            <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+            <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+          </svg>
+          <span>Группы</span>
+        </button>
         <button id="go-calendar" class="btn menu-item">
           <svg class="menu-item-icon" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M7 2v3M17 2v3M3 9h18M6 5h12a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z"></path>
@@ -46,51 +84,15 @@
           </svg>
           <span>ЗП</span>
         </button>
+        <button id="go-settings" class="btn menu-item">
+          <svg class="menu-item-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 15.5A3.5 3.5 0 1 0 12 8.5a3.5 3.5 0 0 0 0 7z"></path>
+            <path d="M19.4 15a1 1 0 0 0 .2 1.1l.1.1a2 2 0 0 1-2.8 2.8l-.1-.1a1 1 0 0 0-1.1-.2 1 1 0 0 0-.6.9V20a2 2 0 0 1-4 0v-.2a1 1 0 0 0-.6-.9 1 1 0 0 0-1.1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1 1 0 0 0 .2-1.1 1 1 0 0 0-.9-.6H4a2 2 0 0 1 0-4h.2a1 1 0 0 0 .9-.6 1 1 0 0 0-.2-1.1l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1 1 0 0 0 1.1.2h0a1 1 0 0 0 .6-.9V4a2 2 0 0 1 4 0v.2a1 1 0 0 0 .6.9h0a1 1 0 0 0 1.1-.2l.1-.1a2 2 0 0 1 2.8 2.8l-.1.1a1 1 0 0 0-.2 1.1v0a1 1 0 0 0 .9.6H20a2 2 0 0 1 0 4h-.2a1 1 0 0 0-.9.6z"></path>
+          </svg>
+          <span>Настройки</span>
+        </button>
       </nav>
-    </div>
-
-    <nav class="bottom-nav" aria-label="Основная навигация">
-      <button id="go-today" class="btn nav-btn" aria-label="Журнал" title="Журнал">
-        <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M7 3h10a2 2 0 0 1 2 2v15l-4-2-4 2-4-2-4 2V5a2 2 0 0 1 2-2h2"></path>
-          <path d="M8 8h8M8 12h8"></path>
-        </svg>
-      </button>
-      <button id="go-students" class="btn nav-btn" aria-label="Карточки" title="Карточки">
-        <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path>
-          <path d="M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"></path>
-        </svg>
-      </button>
-      <button id="go-groups" class="btn nav-btn" aria-label="Группы" title="Группы">
-        <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-          <path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"></path>
-          <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
-          <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
-        </svg>
-      </button>
-      <button id="go-settings" class="btn nav-btn" aria-label="Настройки" title="Настройки">
-        <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M12 15.5A3.5 3.5 0 1 0 12 8.5a3.5 3.5 0 0 0 0 7z"></path>
-          <path d="M19.4 15a1 1 0 0 0 .2 1.1l.1.1a2 2 0 0 1-2.8 2.8l-.1-.1a1 1 0 0 0-1.1-.2 1 1 0 0 0-.6.9V20a2 2 0 0 1-4 0v-.2a1 1 0 0 0-.6-.9 1 1 0 0 0-1.1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1 1 0 0 0 .2-1.1 1 1 0 0 0-.9-.6H4a2 2 0 0 1 0-4h.2a1 1 0 0 0 .9-.6 1 1 0 0 0-.2-1.1l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1 1 0 0 0 1.1.2h0a1 1 0 0 0 .6-.9V4a2 2 0 0 1 4 0v.2a1 1 0 0 0 .6.9h0a1 1 0 0 0 1.1-.2l.1-.1a2 2 0 0 1 2.8 2.8l-.1.1a1 1 0 0 0-.2 1.1v0a1 1 0 0 0 .9.6H20a2 2 0 0 1 0 4h-.2a1 1 0 0 0-.9.6z"></path>
-        </svg>
-      </button>
-      <button
-        id="menu-toggle"
-        class="btn nav-btn nav-btn-more"
-        type="button"
-        aria-label="Дополнительно"
-        title="Дополнительно"
-        aria-controls="topbar-menu"
-        aria-expanded="false"
-      >
-        <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M5 12h.01M12 12h.01M19 12h.01"></path>
-          <path d="M6 12a1 1 0 1 1-2 0 1 1 0 0 1 2 0zM13 12a1 1 0 1 1-2 0 1 1 0 0 1 2 0zM20 12a1 1 0 1 1-2 0 1 1 0 0 1 2 0z"></path>
-        </svg>
-      </button>
-    </nav>
+    </aside>
   </div>
 
   <script src="config.js"></script>
