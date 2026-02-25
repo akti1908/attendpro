@@ -3,12 +3,15 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="theme-color" content="#14171b" />
+  <meta name="theme-color" content="#0f172a" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="AttendPro" />
   <title>AttendPro</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
   <link rel="icon" type="image/svg+xml" href="icons/icon.svg" />
@@ -17,15 +20,10 @@
 </head>
 <body>
   <div class="app-shell">
-    <header class="topbar">
+    <aside class="topbar" aria-label="Навигация">
       <div class="topbar-head">
         <h1 class="topbar-brand">AttendPro</h1>
-        <button id="menu-toggle" class="btn small-btn menu-toggle" type="button" aria-expanded="false" aria-controls="topbar-menu">
-          Меню
-        </button>
-        <div class="topbar-spacer" aria-hidden="true"></div>
       </div>
-
       <div id="topbar-menu" class="topbar-menu">
         <nav class="nav-actions">
           <button id="go-today" class="btn btn-primary">Журнал</button>
@@ -37,9 +35,9 @@
           <button id="go-settings" class="btn">Настройки</button>
         </nav>
       </div>
-    </header>
+    </aside>
 
-    <main id="app"></main>
+    <main class="app-main" id="app"></main>
   </div>
 
   <script src="config.js"></script>
