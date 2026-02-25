@@ -11,7 +11,7 @@ export function renderHome(root, ctx) {
   const selectedDateLabel = ctx.formatDate(selectedDate);
 
   root.innerHTML = `
-    <section class="card">
+    <section class="card" data-journal-swipe-surface="1">
       <h2 class="section-title">Журнал посещаемости</h2>
       <div class="date-toolbar">
         <button id="prev-day" class="btn small-btn day-arrow-btn" aria-label="Предыдущий день" title="Предыдущий день">◀</button>
@@ -40,6 +40,8 @@ export function renderHome(root, ctx) {
       </div>
     </section>
   `;
+
+  bindJournalSwipeNavigation(root, ctx);
 
   const dayList = root.querySelector("#day-list");
   dayList.innerHTML = sessions.length
@@ -152,4 +154,77 @@ export function renderHome(root, ctx) {
 
     sendTodayReportButton.disabled = false;
   });
+}
+
+function bindJournalSwipeNavigation(root, ctx) {
+  const swipeSurface = root.querySelector("[data-journal-swipe-surface='1']");
+  if (!swipeSurface) return;
+
+  const SWIPE_DISTANCE_PX = 56;
+  const SWIPE_DOMINANCE_RATIO = 1.2;
+  const MAX_VERTICAL_DRIFT_PX = 96;
+
+  const state = {
+    startX: 0,
+    startY: 0,
+    active: false
+  };
+
+  swipeSurface.addEventListener(
+    "touchstart",
+    (event) => {
+      if (!event.touches || event.touches.length !== 1) return;
+
+      // Не перехватываем жесты, начатые на интерактивных элементах.
+      const targetElement = event.target instanceof Element ? event.target : null;
+      const interactiveTarget = targetElement
+        ? targetElement.closest("button, input, select, textarea, label, a, [role='button']")
+        : null;
+      if (interactiveTarget) {
+        state.active = false;
+        return;
+      }
+
+      const touch = event.touches[0];
+      state.startX = touch.clientX;
+      state.startY = touch.clientY;
+      state.active = true;
+    },
+    { passive: true }
+  );
+
+  swipeSurface.addEventListener(
+    "touchend",
+    (event) => {
+      if (!state.active || !event.changedTouches || event.changedTouches.length !== 1) {
+        state.active = false;
+        return;
+      }
+
+      const touch = event.changedTouches[0];
+      const deltaX = touch.clientX - state.startX;
+      const deltaY = touch.clientY - state.startY;
+
+      state.active = false;
+
+      if (Math.abs(deltaX) < SWIPE_DISTANCE_PX) return;
+      if (Math.abs(deltaY) > MAX_VERTICAL_DRIFT_PX) return;
+      if (Math.abs(deltaX) <= Math.abs(deltaY) * SWIPE_DOMINANCE_RATIO) return;
+
+      if (deltaX < 0) {
+        ctx.actions.shiftSelectedDate(1);
+      } else {
+        ctx.actions.shiftSelectedDate(-1);
+      }
+    },
+    { passive: true }
+  );
+
+  swipeSurface.addEventListener(
+    "touchcancel",
+    () => {
+      state.active = false;
+    },
+    { passive: true }
+  );
 }
