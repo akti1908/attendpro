@@ -220,10 +220,13 @@ async function checkScheduledTelegramReport() {
   const currentDay = now.getDay();
   if (!autoReport.days.includes(currentDay)) return;
 
+  const scheduleHour = Number(autoReport.hour);
   const currentHour = now.getHours();
-  if (currentHour !== Number(autoReport.hour)) return;
+  // Отправляем в выбранный час и "догоняем" позже в тот же день,
+  // если приложение было закрыто/неактивно в точное время.
+  if (currentHour < scheduleHour) return;
 
-  const slotKey = `${toISODate(now)}__${String(currentHour).padStart(2, "0")}`;
+  const slotKey = `${toISODate(now)}__${String(scheduleHour).padStart(2, "0")}`;
   if (autoReport.lastSentSlotKey === slotKey) return;
 
   const result = await sendTodayReportToTelegram(toISODate(now));

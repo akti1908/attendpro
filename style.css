@@ -369,6 +369,20 @@ body.is-auth-required .app-main {
   transition: background-color var(--transition), border-color var(--transition), box-shadow var(--transition), transform var(--transition);
 }
 
+.journal-swipe-surface {
+  min-height: calc(100dvh - 110px);
+}
+
+.journal-card {
+  min-height: 100%;
+}
+
+@supports not (height: 100dvh) {
+  .journal-swipe-surface {
+    min-height: calc(100vh - 110px);
+  }
+}
+
 .card-item:hover {
   background: var(--surface-hover);
   border-color: rgba(148, 163, 184, 0.3);

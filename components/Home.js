@@ -11,34 +11,36 @@ export function renderHome(root, ctx) {
   const selectedDateLabel = ctx.formatDate(selectedDate);
 
   root.innerHTML = `
-    <section class="card" data-journal-swipe-surface="1">
-      <h2 class="section-title">Журнал посещаемости</h2>
-      <div class="date-toolbar">
-        <button id="prev-day" class="btn small-btn day-arrow-btn" aria-label="Предыдущий день" title="Предыдущий день">◀</button>
-        <button id="selected-date-display" class="btn small-btn date-center-btn" type="button">${selectedDateLabel}</button>
-        <button id="next-day" class="btn small-btn day-arrow-btn" aria-label="Следующий день" title="Следующий день">▶</button>
-      </div>
-      <input id="selected-date" class="date-picker-hidden" type="date" value="${selectedDate}" />
-      ${showEditToggle
-        ? `
-          <div class="home-edit-row">
-            <button id="toggle-edit" class="btn small-btn ${ctx.state.editMode ? "btn-active" : ""}" ${lockedByMonth ? "disabled" : ""}>
-              ${lockedByMonth
-                ? "Месяц закрыт"
-                : ctx.state.editMode
-                  ? "Редактирование: ВКЛ"
-                  : "Редактировать"}
-            </button>
-          </div>
-        `
-        : ""}
-      ${lockedByMonth ? `<p class="locked-note">Дата относится к закрытому месяцу. Изменения заблокированы.</p>` : ""}
-      <div id="day-list" class="list-scroll"></div>
-      <div class="tools-row section-gap">
-        <button id="send-today-report" class="btn small-btn">Отправить отчет за выбранный день в Telegram</button>
-        <p id="send-today-report-message" class="muted small-note"></p>
-      </div>
-    </section>
+    <div class="journal-swipe-surface" data-journal-swipe-surface="1">
+      <section class="card journal-card">
+        <h2 class="section-title">Журнал посещаемости</h2>
+        <div class="date-toolbar">
+          <button id="prev-day" class="btn small-btn day-arrow-btn" aria-label="Предыдущий день" title="Предыдущий день">◀</button>
+          <button id="selected-date-display" class="btn small-btn date-center-btn" type="button">${selectedDateLabel}</button>
+          <button id="next-day" class="btn small-btn day-arrow-btn" aria-label="Следующий день" title="Следующий день">▶</button>
+        </div>
+        <input id="selected-date" class="date-picker-hidden" type="date" value="${selectedDate}" />
+        ${showEditToggle
+          ? `
+            <div class="home-edit-row">
+              <button id="toggle-edit" class="btn small-btn ${ctx.state.editMode ? "btn-active" : ""}" ${lockedByMonth ? "disabled" : ""}>
+                ${lockedByMonth
+                  ? "Месяц закрыт"
+                  : ctx.state.editMode
+                    ? "Редактирование: ВКЛ"
+                    : "Редактировать"}
+              </button>
+            </div>
+          `
+          : ""}
+        ${lockedByMonth ? `<p class="locked-note">Дата относится к закрытому месяцу. Изменения заблокированы.</p>` : ""}
+        <div id="day-list" class="list-scroll"></div>
+        <div class="tools-row section-gap">
+          <button id="send-today-report" class="btn small-btn">Отправить отчет за выбранный день в Telegram</button>
+          <p id="send-today-report-message" class="muted small-note"></p>
+        </div>
+      </section>
+    </div>
   `;
 
   bindJournalSwipeNavigation(root, ctx);
@@ -179,10 +181,71 @@ function bindJournalSwipeNavigation(root, ctx) {
     return { x: touch.clientX, y: touch.clientY };
   };
 
+  let windowListenersAttached = false;
+  const removeWindowTouchListeners = () => {
+    if (!windowListenersAttached) return;
+    window.removeEventListener("touchmove", onWindowTouchMove);
+    window.removeEventListener("touchend", onWindowTouchEnd);
+    window.removeEventListener("touchcancel", onWindowTouchCancel);
+    windowListenersAttached = false;
+  };
+
+  const finalizeSwipe = (point) => {
+    const deltaX = point.x - state.startX;
+    const deltaY = point.y - state.startY;
+
+    state.active = false;
+
+    if (Math.abs(deltaX) < SWIPE_DISTANCE_PX) return;
+    if (Math.abs(deltaY) > MAX_VERTICAL_DRIFT_PX) return;
+    if (Math.abs(deltaX) <= Math.abs(deltaY) * SWIPE_DOMINANCE_RATIO) return;
+
+    if (deltaX < 0) {
+      ctx.actions.shiftSelectedDate(1);
+    } else {
+      ctx.actions.shiftSelectedDate(-1);
+    }
+  };
+
+  const onWindowTouchMove = (event) => {
+    if (!state.active) return;
+    const point = readTouchPoint(event.touches);
+    if (!point) return;
+
+    state.lastX = point.x;
+    state.lastY = point.y;
+  };
+
+  const onWindowTouchEnd = (event) => {
+    if (!state.active) {
+      removeWindowTouchListeners();
+      return;
+    }
+
+    const point = readTouchPoint(event.changedTouches) || { x: state.lastX, y: state.lastY };
+    removeWindowTouchListeners();
+    finalizeSwipe(point);
+  };
+
+  const onWindowTouchCancel = () => {
+    state.active = false;
+    removeWindowTouchListeners();
+  };
+
   swipeSurface.addEventListener(
     "touchstart",
     (event) => {
       if (!event.touches || event.touches.length !== 1) return;
+
+      const targetElement = event.target instanceof Element ? event.target : null;
+      const interactiveTarget = targetElement
+        ? targetElement.closest("button, input, select, textarea, label, a, [role='button']")
+        : null;
+      if (interactiveTarget) {
+        state.active = false;
+        removeWindowTouchListeners();
+        return;
+      }
 
       const point = readTouchPoint(event.touches);
       if (!point) return;
@@ -192,54 +255,12 @@ function bindJournalSwipeNavigation(root, ctx) {
       state.lastX = point.x;
       state.lastY = point.y;
       state.active = true;
-    },
-    { passive: true }
-  );
-
-  swipeSurface.addEventListener(
-    "touchmove",
-    (event) => {
-      if (!state.active) return;
-      const point = readTouchPoint(event.touches);
-      if (!point) return;
-
-      state.lastX = point.x;
-      state.lastY = point.y;
-    },
-    { passive: true }
-  );
-
-  swipeSurface.addEventListener(
-    "touchend",
-    (event) => {
-      if (!state.active) {
-        state.active = false;
-        return;
+      if (!windowListenersAttached) {
+        window.addEventListener("touchmove", onWindowTouchMove, { passive: true });
+        window.addEventListener("touchend", onWindowTouchEnd, { passive: true });
+        window.addEventListener("touchcancel", onWindowTouchCancel, { passive: true });
+        windowListenersAttached = true;
       }
-
-      const point = readTouchPoint(event.changedTouches) || { x: state.lastX, y: state.lastY };
-      const deltaX = point.x - state.startX;
-      const deltaY = point.y - state.startY;
-
-      state.active = false;
-
-      if (Math.abs(deltaX) < SWIPE_DISTANCE_PX) return;
-      if (Math.abs(deltaY) > MAX_VERTICAL_DRIFT_PX) return;
-      if (Math.abs(deltaX) <= Math.abs(deltaY) * SWIPE_DOMINANCE_RATIO) return;
-
-      if (deltaX < 0) {
-        ctx.actions.shiftSelectedDate(1);
-      } else {
-        ctx.actions.shiftSelectedDate(-1);
-      }
-    },
-    { passive: true }
-  );
-
-  swipeSurface.addEventListener(
-    "touchcancel",
-    () => {
-      state.active = false;
     },
     { passive: true }
   );
