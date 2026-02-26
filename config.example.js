@@ -1,17 +1,12 @@
-// Пример конфига облачной синхронизации AttendPro.
-// Скопируйте файл в config.js и подставьте свои значения.
+// Copy this file to config.js and fill values.
 window.ATTENDPRO_CLOUD = {
   url: "https://YOUR_PROJECT_REF.supabase.co",
   anonKey: "YOUR_SUPABASE_ANON_KEY",
   table: "attendpro_accounts"
 };
 
-// Опционально: внешний backend для Telegram-отчетов.
-// Нужен, если приложение открывается с GitHub Pages.
-// Пример: https://attendpro-api.example.com
+// Telegram reports must be sent only through backend API.
 window.ATTENDPRO_TELEGRAM = {
-  apiBaseUrl: "",
-  botToken: "",
-  chatId: "",
-  messageThreadId: ""
+  apiBaseUrl: "https://YOUR_BACKEND_BASE_URL",
+  schedulerMode: "server"
 };

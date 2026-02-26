@@ -1,6 +1,7 @@
 // Страница настроек приложения.
 export function renderSettings(root, ctx) {
   const settings = ctx.userSettings;
+  const serverAutoReportEnabled = Boolean(ctx.isServerAutoReportEnabled);
   const currentTheme = ctx.state.theme === "dark" ? "Темная" : "Светлая";
   const nextTheme = ctx.state.theme === "dark" ? "light" : "dark";
   const currentEmail = String(ctx.currentUser?.email || "-");
@@ -130,6 +131,7 @@ export function renderSettings(root, ctx) {
 
               <button id="settings-save-auto-report" class="btn small-btn" type="button">Сохранить автоотчет</button>
               <p id="settings-auto-report-message" class="muted small-note"></p>
+              <p class="muted small-note">${serverAutoReportEnabled ? "Автоотчет работает на сервере 24/7 и не зависит от открытого браузера." : "Внимание: без серверного scheduler автоотчет зависит от открытого приложения."}</p>
             </div>
           </div>
         </details>

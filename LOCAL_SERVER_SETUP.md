@@ -1,6 +1,6 @@
 # AttendPro: локальный сервер 24/7 (Windows)
 
-## 1. Установка зависимостей
+## 1. Установка
 
 ```powershell
 cd "C:\Users\Akti\Desktop\Attend Pro\AttendPro"
@@ -8,93 +8,107 @@ npm install
 npm install -g pm2
 ```
 
-## 2. Первый запуск сервера
+## 2. Безопасная настройка секретов (без хранения в Git)
+
+1. Создайте файл `.env` рядом с `server.js`:
 
 ```powershell
+cd "C:\Users\Akti\Desktop\Attend Pro\AttendPro"
+Copy-Item .env.example .env
+```
+
+2. Откройте `.env` и заполните:
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_CHAT_ID`
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+
+3. Убедитесь, что `.env` не попадет в Git:
+- файл уже добавлен в `.gitignore`.
+
+## 3. Применение SQL-миграции в Supabase (обязательно)
+
+1. Откройте `https://supabase.com/dashboard`.
+2. Выберите проект AttendPro.
+3. В левом меню: `SQL Editor`.
+4. Нажмите `New query`.
+5. Откройте файл `supabase/migrations/202602260001_attendpro_report_runs.sql`.
+6. Скопируйте весь SQL в редактор Supabase.
+7. Нажмите `Run`.
+8. Убедитесь, что статус выполнения `Success`.
+
+Эта миграция добавляет таблицу идемпотентности `attendpro_report_runs` для защиты от дублей отчетов.
+
+## 4. Запуск сервера и scheduler
+
+```powershell
+cd "C:\Users\Akti\Desktop\Attend Pro\AttendPro"
 pm2 start ecosystem.config.cjs
 pm2 save
 ```
 
-Проверка в браузере:
-
-`http://localhost:8080`
-
-Если нужно открыть для других устройств в вашей сети:
-
-`http://<IP_вашего_ПК>:8080`
-
-## 2.1 Настройка Telegram-бота для отчета из журнала
-
-1. Создайте бота через `@BotFather` и получите токен.
-
-2. Узнайте `chat_id`:
-- для личного чата: напишите боту любое сообщение и откройте в браузере  
-  `https://api.telegram.org/bot<ВАШ_ТОКЕН>/getUpdates`
-- найдите `chat.id` в ответе.
-
-3. Откройте `ecosystem.config.cjs` и заполните:
-
-```js
-env: {
-  HOST: "0.0.0.0",
-  PORT: "8080",
-  TELEGRAM_BOT_TOKEN: "ваш_токен_бота",
-  TELEGRAM_CHAT_ID: "ваш_chat_id",
-  TELEGRAM_MESSAGE_THREAD_ID: "" // только для тем в supergroup, иначе пусто
-}
-```
-
-4. Перезапустите сервер:
+Проверка:
 
 ```powershell
-pm2 restart attendpro
-pm2 save
+curl http://127.0.0.1:8080/api/health
 ```
 
-## 3. Автозапуск после перезагрузки Windows
+В ответе должно быть:
+- `"ok": true`
+- `"telegramConfigured": true`
+- `"supabaseConfigured": true`
 
-Выполните команду и запустите ту строку, которую покажет PM2:
+## 5. Настройка клиента (GitHub Pages / PWA)
+
+В `config.js`:
+
+```js
+window.ATTENDPRO_TELEGRAM = {
+  apiBaseUrl: "https://ВАШ-БЭКЕНД-ДОМЕН",
+  schedulerMode: "server"
+};
+```
+
+Важно:
+- не добавляйте `botToken` в `config.js`;
+- `schedulerMode: "server"` отключает критическую зависимость от открытого браузера.
+
+## 6. Автозапуск после перезагрузки Windows
 
 ```powershell
 pm2 startup
-```
-
-После этого еще раз:
-
-```powershell
 pm2 save
 ```
 
-## 4. Обновление приложения из GitHub
+Выполните команду, которую вернет `pm2 startup` (она запускается один раз от администратора).
 
-Один раз:
-
-```powershell
-Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-```
-
-Далее при каждом обновлении:
+## 7. Обновление приложения из GitHub
 
 ```powershell
 cd "C:\Users\Akti\Desktop\Attend Pro\AttendPro"
 .\update-and-restart.ps1 -Branch main
 ```
 
-Этот скрипт:
-- подтянет изменения из GitHub,
-- обновит `node_modules`,
-- перезапустит сервер PM2.
+## 8. Ротация уже скомпрометированного Telegram токена
 
-## 5. Автообновление без ручного запуска (опционально)
-
-Создать задачу Windows Scheduler, которая будет обновлять приложение автоматически:
+1. Откройте Telegram и перейдите к `@BotFather`.
+2. Команда `/mybots`.
+3. Выберите вашего бота.
+4. Нажмите `API Token` -> `Revoke current token`.
+5. Сразу нажмите `Generate new token`.
+6. Скопируйте новый токен.
+7. Обновите `TELEGRAM_BOT_TOKEN` в `.env`.
+8. Перезапустите сервер:
 
 ```powershell
 cd "C:\Users\Akti\Desktop\Attend Pro\AttendPro"
-.\create-auto-update-task.ps1 -Branch main -EveryMinutes 10
+pm2 restart attendpro
+pm2 save
 ```
 
-Удалить задачу, если нужно:
+9. Проверьте `GET /api/health` и ручную отправку отчета из приложения.
+
+## 9. Если нужно удалить задачу автообновления Windows Scheduler
 
 ```powershell
 schtasks /Delete /TN AttendProAutoUpdate /F

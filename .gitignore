@@ -3,3 +3,7 @@ Thumbs.db
 .DS_Store
 node_modules/
 pm2.log
+.env
+.env.*
+!.env.example
+ecosystem.config.local.cjs

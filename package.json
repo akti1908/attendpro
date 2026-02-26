@@ -10,6 +10,7 @@
     "serve:lan": "set HOST=0.0.0.0&& set PORT=8080&& node server.js"
   },
   "dependencies": {
+    "dotenv": "^17.3.1",
     "express": "^4.21.2"
   }
 }

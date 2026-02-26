@@ -9,12 +9,16 @@ import { renderAuth } from "./components/Auth.js";
 import { renderSettings } from "./components/Settings.js";
 
 const STORAGE_KEY = "attendpro_state_v4";
+const SYNC_CONFLICT_BACKUPS_KEY = "attendpro_sync_conflict_backups_v1";
 const APP_VERSION = 5;
 const ALLOWED_THEMES = ["dark", "light"];
 const CLOUD_SYNC_DEBOUNCE_MS = 1200;
+const CLOUD_SYNC_RETRY_BASE_MS = 2000;
+const CLOUD_SYNC_RETRY_MAX_MS = 60000;
 const CLOUD_FETCH_TIMEOUT_MS = 15000;
 const AUTO_REPORT_CHECK_INTERVAL_MS = 30000;
 const TELEGRAM_REPORT_MAX_LENGTH = 3900;
+const MAX_SYNC_CONFLICT_BACKUPS = 5;
 const DEFAULT_SYNC_STATE = {
   pendingDataSync: false,
   lastDataChangeAt: null,
@@ -95,6 +99,8 @@ void renderSession;
 
 let state = loadState();
 let cloudSyncTimer = null;
+let cloudSyncRetryTimer = null;
+let cloudSyncRetryAttempt = 0;
 let cloudSyncInFlight = false;
 let cloudSyncQueued = false;
 let swRefreshTriggered = false;
@@ -188,11 +194,20 @@ function bindSyncLifecycleHandlers() {
   });
 
   window.addEventListener("online", () => {
+    resetCloudSyncRetry();
     void bootstrapCloudSync();
   });
 }
 
 function startAutoReportScheduler() {
+  if (!shouldRunBrowserAutoReportScheduler()) {
+    if (autoReportTimer) {
+      clearInterval(autoReportTimer);
+      autoReportTimer = null;
+    }
+    return;
+  }
+
   if (autoReportTimer) {
     clearInterval(autoReportTimer);
     autoReportTimer = null;
@@ -206,6 +221,7 @@ function startAutoReportScheduler() {
 }
 
 async function checkScheduledTelegramReport() {
+  if (!shouldRunBrowserAutoReportScheduler()) return;
   if (!isAuthenticated()) return;
 
   const ownerId = getCurrentUserId();
@@ -229,7 +245,11 @@ async function checkScheduledTelegramReport() {
   const slotKey = `${toISODate(now)}__${String(scheduleHour).padStart(2, "0")}`;
   if (autoReport.lastSentSlotKey === slotKey) return;
 
-  const result = await sendTodayReportToTelegram(toISODate(now));
+  const idempotencyKey = buildTelegramReportIdempotencyKey({
+    slotKey,
+    source: "browser-auto"
+  });
+  const result = await sendTodayReportToTelegram(toISODate(now), { idempotencyKey });
   if (!result?.ok) {
     return;
   }
@@ -360,7 +380,9 @@ function setAutoReportSettings(payload) {
   });
   saveState({ dataChanged: true });
   renderApp();
-  void checkScheduledTelegramReport();
+  if (shouldRunBrowserAutoReportScheduler()) {
+    void checkScheduledTelegramReport();
+  }
 }
 
 async function syncCloudNow() {
@@ -391,47 +413,36 @@ async function syncCloudNow() {
   return { ok: true, message: "Синхронизация завершена." };
 }
 
-async function sendTodayReportToTelegram(targetDateISO = null) {
+async function sendTodayReportToTelegram(targetDateISO = null, options = {}) {
   if (!isAuthenticated()) {
     return { ok: false, message: "Авторизуйтесь для отправки отчета." };
   }
 
   const telegramConfig = getTelegramReportConfig();
-  const hasServerEndpoint = Boolean(telegramConfig.apiBaseUrl);
-  const hasDirectTelegram = Boolean(telegramConfig.botToken && telegramConfig.chatId);
-  if (!hasServerEndpoint && !hasDirectTelegram) {
+  if (!telegramConfig.apiBaseUrl) {
     return {
       ok: false,
-      message: "Telegram не настроен. Укажите apiBaseUrl или botToken/chatId в ATTENDPRO_TELEGRAM."
+      message: "Telegram не настроен. Укажите ATTENDPRO_TELEGRAM.apiBaseUrl."
     };
   }
 
   const reportDateISO = ensureISODate(targetDateISO, getTodayISO());
   const text = buildTodayAttendanceReportText(reportDateISO);
+  const idempotencyKey = String(options?.idempotencyKey || "").trim();
 
-  const endpoint = hasServerEndpoint
-    ? `${telegramConfig.apiBaseUrl}/api/telegram/send-report`
-    : `https://api.telegram.org/bot${telegramConfig.botToken}/sendMessage`;
-  const messageThreadId = Number(telegramConfig.messageThreadId);
-  const payloadBody = hasServerEndpoint
-    ? {
-      dateISO: reportDateISO,
-      userEmail: getCurrentUser()?.email || "",
-      text
-    }
-    : {
-      chat_id: telegramConfig.chatId,
-      text,
-      disable_web_page_preview: true,
-      allow_sending_without_reply: true,
-      ...(Number.isInteger(messageThreadId) && messageThreadId > 0 ? { message_thread_id: messageThreadId } : {})
-    };
+  const payloadBody = {
+    dateISO: reportDateISO,
+    userEmail: getCurrentUser()?.email || "",
+    text,
+    ...(idempotencyKey ? { idempotencyKey } : {})
+  };
 
   try {
-    const response = await fetch(endpoint, {
+    const response = await fetch(`${telegramConfig.apiBaseUrl}/api/telegram/send-report`, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        ...(idempotencyKey ? { "X-Idempotency-Key": idempotencyKey } : {})
       },
       body: JSON.stringify(payloadBody)
     });
@@ -444,12 +455,6 @@ async function sendTodayReportToTelegram(targetDateISO = null) {
     }
 
     if (!response.ok || !payload?.ok) {
-      if (response.status === 405 && !hasServerEndpoint && !hasDirectTelegram) {
-        return {
-          ok: false,
-          message: "Метод не поддерживается. Нужен backend endpoint либо прямой Telegram botToken/chatId."
-        };
-      }
       return {
         ok: false,
         message: payload?.message || payload?.description || `Ошибка отправки отчета (${response.status}).`
@@ -464,20 +469,58 @@ async function sendTodayReportToTelegram(targetDateISO = null) {
     console.error("sendTodayReportToTelegram error:", error);
     return {
       ok: false,
-      message: "Сервер отправки недоступен. Проверьте, что локальный сервер запущен."
+      message: "Сервер отправки недоступен. Проверьте apiBaseUrl и запуск backend."
     };
   }
 }
 
 function getTelegramReportConfig() {
   const raw = window.ATTENDPRO_TELEGRAM || {};
-  const apiBaseUrl = String(raw.apiBaseUrl || "")
+  return {
+    apiBaseUrl: resolveTelegramApiBaseUrl(raw.apiBaseUrl),
+    schedulerMode: normalizeTelegramSchedulerMode(raw.schedulerMode)
+  };
+}
+
+function resolveTelegramApiBaseUrl(value) {
+  const explicitUrl = String(value || "")
     .trim()
     .replace(/\/+$/, "");
-  const botToken = String(raw.botToken || "").trim();
-  const chatId = String(raw.chatId || "").trim();
-  const messageThreadId = String(raw.messageThreadId || "").trim();
-  return { apiBaseUrl, botToken, chatId, messageThreadId };
+  if (explicitUrl) return explicitUrl;
+  if (window.location.protocol.startsWith("http") && isLocalhostOrigin(window.location.hostname)) {
+    return window.location.origin.replace(/\/+$/, "");
+  }
+  return "";
+}
+
+function normalizeTelegramSchedulerMode(value) {
+  return String(value || "").trim().toLowerCase() === "browser" ? "browser" : "server";
+}
+
+function shouldRunBrowserAutoReportScheduler() {
+  const cfg = getTelegramReportConfig();
+  if (!cfg.apiBaseUrl) return true;
+  return cfg.schedulerMode === "browser";
+}
+
+function isServerAutoReportEnabled() {
+  const cfg = getTelegramReportConfig();
+  return Boolean(cfg.apiBaseUrl) && cfg.schedulerMode !== "browser";
+}
+
+function isLocalhostOrigin(hostname) {
+  const host = String(hostname || "").toLowerCase();
+  return host === "localhost" || host === "127.0.0.1" || host === "::1";
+}
+
+function buildTelegramReportIdempotencyKey(payload = {}) {
+  const source = String(payload?.source || "manual").trim().toLowerCase() || "manual";
+  const slotKey = normalizeAutoReportSlotKey(payload?.slotKey);
+  const userId = getCurrentUserId() || "anon";
+  if (slotKey) {
+    return `attendpro:${source}:${userId}:${slotKey}`;
+  }
+  return `attendpro:${source}:${userId}:${getTodayISO()}`;
 }
 
 function applyTheme(themeName) {
@@ -687,10 +730,38 @@ function scheduleCloudSync() {
   if (!isAuthenticated() || !isCloudConfigured()) return;
 
   cloudSyncQueued = true;
+  if (cloudSyncRetryTimer) {
+    clearTimeout(cloudSyncRetryTimer);
+    cloudSyncRetryTimer = null;
+  }
   if (cloudSyncTimer) clearTimeout(cloudSyncTimer);
   cloudSyncTimer = setTimeout(() => {
     void pushStateToCloud();
   }, CLOUD_SYNC_DEBOUNCE_MS);
+}
+
+function resetCloudSyncRetry() {
+  cloudSyncRetryAttempt = 0;
+  if (cloudSyncRetryTimer) {
+    clearTimeout(cloudSyncRetryTimer);
+    cloudSyncRetryTimer = null;
+  }
+}
+
+function scheduleCloudSyncRetry() {
+  if (!isAuthenticated() || !isCloudConfigured()) return;
+  if (cloudSyncRetryTimer) return;
+
+  cloudSyncRetryAttempt += 1;
+  const retryDelayMs = Math.min(
+    CLOUD_SYNC_RETRY_MAX_MS,
+    CLOUD_SYNC_RETRY_BASE_MS * (2 ** Math.max(0, cloudSyncRetryAttempt - 1))
+  );
+
+  cloudSyncRetryTimer = setTimeout(() => {
+    cloudSyncRetryTimer = null;
+    void pushStateToCloud();
+  }, retryDelayMs);
 }
 
 async function pushStateToCloud() {
@@ -704,6 +775,7 @@ async function pushStateToCloud() {
   cloudSyncQueued = false;
   try {
     await cloudUpdateStateByAccount(user, buildCloudStatePayload());
+    resetCloudSyncRetry();
     const sync = getSyncStateForUser(user.id);
     sync.pendingDataSync = false;
     sync.lastCloudUpdateAt = new Date().toISOString();
@@ -716,6 +788,10 @@ async function pushStateToCloud() {
     return true;
   } catch (error) {
     console.error("Cloud sync error:", error);
+    const sync = getSyncStateForUser(user.id);
+    if (sync.pendingDataSync) {
+      scheduleCloudSyncRetry();
+    }
     return false;
   } finally {
     cloudSyncInFlight = false;
@@ -753,6 +829,13 @@ async function pullStateFromCloudForUser(user, options = {}) {
       // Если в облаке данные новее (или запросили приоритет облака вручную),
       // принимаем облачную версию и не пушим локальную поверх нее.
       if (remoteIsNewerThanLocal || (preferRemoteOnConflict && remoteIsNotOlder)) {
+        saveSyncConflictBackup({
+          ownerId,
+          localPayload: buildCloudStatePayload(),
+          remotePayload: payload,
+          localUpdatedAt,
+          remoteUpdatedAt
+        });
         // Продолжаем и применяем payload ниже.
       } else {
         await pushStateToCloud();
@@ -890,6 +973,7 @@ function buildContext() {
     weekDays,
     packageOptions,
     isCloudConfigured: isCloudConfigured(),
+    isServerAutoReportEnabled: isServerAutoReportEnabled(),
     getTodayISO,
     formatDate,
     dayLabel,
@@ -1881,6 +1965,42 @@ function getRemotePayloadUpdatedAt(payload, fallbackUpdatedAt = null) {
 function toEpochMs(dateTimeValue) {
   const ms = Date.parse(String(dateTimeValue || ""));
   return Number.isFinite(ms) ? ms : 0;
+}
+
+function readSyncConflictBackups() {
+  try {
+    const raw = localStorage.getItem(SYNC_CONFLICT_BACKUPS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((item) => item && typeof item === "object")
+      .slice(0, MAX_SYNC_CONFLICT_BACKUPS);
+  } catch (_error) {
+    return [];
+  }
+}
+
+function writeSyncConflictBackups(backups) {
+  const next = Array.isArray(backups) ? backups.slice(0, MAX_SYNC_CONFLICT_BACKUPS) : [];
+  localStorage.setItem(SYNC_CONFLICT_BACKUPS_KEY, JSON.stringify(next));
+}
+
+function saveSyncConflictBackup(payload) {
+  try {
+    const item = {
+      createdAt: new Date().toISOString(),
+      ownerId: String(payload?.ownerId || ""),
+      localUpdatedAt: payload?.localUpdatedAt || null,
+      remoteUpdatedAt: payload?.remoteUpdatedAt || null,
+      localPayload: payload?.localPayload || null,
+      remotePayload: payload?.remotePayload || null
+    };
+    const current = readSyncConflictBackups();
+    writeSyncConflictBackups([item, ...current]);
+  } catch (_error) {
+    // no-op: never block sync because of backup write issues
+  }
 }
 
 function mergeOwnedRows(allRows, ownedRows, ownerId) {
