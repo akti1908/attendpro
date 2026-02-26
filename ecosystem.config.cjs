@@ -20,18 +20,11 @@ module.exports = {
       ],
       env: {
         HOST: "0.0.0.0",
+        PORT: "8080"
+      },
+      env_production: {
+        HOST: "0.0.0.0",
         PORT: "8080",
-
-        // Telegram (server-side only).
-        TELEGRAM_BOT_TOKEN: "",
-        TELEGRAM_CHAT_ID: "",
-        TELEGRAM_MESSAGE_THREAD_ID: "",
-
-        // Supabase admin access for server scheduler and idempotency log.
-        SUPABASE_URL: "",
-        SUPABASE_SERVICE_ROLE_KEY: "",
-        SUPABASE_TABLE: "attendpro_accounts",
-        SUPABASE_REPORT_RUNS_TABLE: "attendpro_report_runs",
 
         // Scheduler.
         AUTO_REPORT_SCHEDULER_ENABLED: "true",

@@ -7,7 +7,7 @@ const dotenvPath = path.join(__dirname, ".env");
 if (fs.existsSync(dotenvPath)) {
   // Optional local-only env file, not committed to git.
   // eslint-disable-next-line global-require
-  require("dotenv").config({ path: dotenvPath });
+  require("dotenv").config({ path: dotenvPath, override: true });
 }
 
 const app = express();
