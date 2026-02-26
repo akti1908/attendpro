@@ -419,10 +419,12 @@ async function sendTodayReportToTelegram(targetDateISO = null, options = {}) {
   }
 
   const telegramConfig = getTelegramReportConfig();
-  if (!telegramConfig.apiBaseUrl) {
+  const hasServerEndpoint = Boolean(telegramConfig.apiBaseUrl);
+  const hasDirectTelegram = Boolean(telegramConfig.botToken && telegramConfig.chatId);
+  if (!hasServerEndpoint && !hasDirectTelegram) {
     return {
       ok: false,
-      message: "Telegram не настроен. Укажите ATTENDPRO_TELEGRAM.apiBaseUrl."
+      message: "Telegram не настроен. Укажите ATTENDPRO_TELEGRAM.apiBaseUrl или botToken/chatId."
     };
   }
 
@@ -430,19 +432,31 @@ async function sendTodayReportToTelegram(targetDateISO = null, options = {}) {
   const text = buildTodayAttendanceReportText(reportDateISO);
   const idempotencyKey = String(options?.idempotencyKey || "").trim();
 
-  const payloadBody = {
-    dateISO: reportDateISO,
-    userEmail: getCurrentUser()?.email || "",
-    text,
-    ...(idempotencyKey ? { idempotencyKey } : {})
-  };
+  const endpoint = hasServerEndpoint
+    ? `${telegramConfig.apiBaseUrl}/api/telegram/send-report`
+    : `https://api.telegram.org/bot${telegramConfig.botToken}/sendMessage`;
+  const messageThreadId = Number(telegramConfig.messageThreadId);
+  const payloadBody = hasServerEndpoint
+    ? {
+      dateISO: reportDateISO,
+      userEmail: getCurrentUser()?.email || "",
+      text,
+      ...(idempotencyKey ? { idempotencyKey } : {})
+    }
+    : {
+      chat_id: telegramConfig.chatId,
+      text,
+      disable_web_page_preview: true,
+      allow_sending_without_reply: true,
+      ...(Number.isInteger(messageThreadId) && messageThreadId > 0 ? { message_thread_id: messageThreadId } : {})
+    };
 
   try {
-    const response = await fetch(`${telegramConfig.apiBaseUrl}/api/telegram/send-report`, {
+    const response = await fetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(idempotencyKey ? { "X-Idempotency-Key": idempotencyKey } : {})
+        ...(hasServerEndpoint && idempotencyKey ? { "X-Idempotency-Key": idempotencyKey } : {})
       },
       body: JSON.stringify(payloadBody)
     });
@@ -469,7 +483,9 @@ async function sendTodayReportToTelegram(targetDateISO = null, options = {}) {
     console.error("sendTodayReportToTelegram error:", error);
     return {
       ok: false,
-      message: "Сервер отправки недоступен. Проверьте apiBaseUrl и запуск backend."
+      message: hasServerEndpoint
+        ? "Сервер отправки недоступен. Проверьте apiBaseUrl и запуск backend."
+        : "Не удалось отправить отчет напрямую в Telegram."
     };
   }
 }
@@ -478,7 +494,10 @@ function getTelegramReportConfig() {
   const raw = window.ATTENDPRO_TELEGRAM || {};
   return {
     apiBaseUrl: resolveTelegramApiBaseUrl(raw.apiBaseUrl),
-    schedulerMode: normalizeTelegramSchedulerMode(raw.schedulerMode)
+    schedulerMode: normalizeTelegramSchedulerMode(raw.schedulerMode),
+    botToken: String(raw.botToken || "").trim(),
+    chatId: String(raw.chatId || "").trim(),
+    messageThreadId: String(raw.messageThreadId || "").trim()
   };
 }
 

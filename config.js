@@ -6,12 +6,14 @@ window.ATTENDPRO_CLOUD = {
   table: "attendpro_accounts"
 };
 
-// Telegram reports must go through backend API only.
-// - apiBaseUrl: full backend URL (for GitHub Pages), e.g. https://attendpro-api.example.com
-// - schedulerMode:
-//   - "server" (default) -> auto reports are sent by backend scheduler
-//   - "browser" -> local fallback from browser timer (not recommended for production)
+// Telegram reports:
+// 1) Recommended production mode: backend API (apiBaseUrl + schedulerMode: "server").
+// 2) Temporary compatibility mode ("as before"): direct browser -> Telegram API via botToken/chatId.
+//    Warning: in direct mode the bot token is visible in client code.
 window.ATTENDPRO_TELEGRAM = {
   apiBaseUrl: "",
-  schedulerMode: "server"
+  schedulerMode: "server",
+  botToken: "",
+  chatId: "",
+  messageThreadId: ""
 };

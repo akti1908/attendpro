@@ -5,8 +5,13 @@ window.ATTENDPRO_CLOUD = {
   table: "attendpro_accounts"
 };
 
-// Telegram reports must be sent only through backend API.
+// Telegram reports:
+// - Recommended: backend API mode.
+// - Temporary fallback: direct mode with botToken/chatId.
 window.ATTENDPRO_TELEGRAM = {
   apiBaseUrl: "https://YOUR_BACKEND_BASE_URL",
-  schedulerMode: "server"
+  schedulerMode: "server",
+  botToken: "",
+  chatId: "",
+  messageThreadId: ""
 };
