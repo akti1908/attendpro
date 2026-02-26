@@ -432,61 +432,152 @@ async function sendTodayReportToTelegram(targetDateISO = null, options = {}) {
   const text = buildTodayAttendanceReportText(reportDateISO);
   const idempotencyKey = String(options?.idempotencyKey || "").trim();
 
-  const endpoint = hasServerEndpoint
-    ? `${telegramConfig.apiBaseUrl}/api/telegram/send-report`
-    : `https://api.telegram.org/bot${telegramConfig.botToken}/sendMessage`;
-  const messageThreadId = Number(telegramConfig.messageThreadId);
-  const payloadBody = hasServerEndpoint
-    ? {
-      dateISO: reportDateISO,
-      userEmail: getCurrentUser()?.email || "",
+  let lastErrorMessage = "";
+
+  if (hasServerEndpoint) {
+    const serverResult = await sendTelegramReportViaBackend({
+      telegramConfig,
+      reportDateISO,
       text,
-      ...(idempotencyKey ? { idempotencyKey } : {})
-    }
-    : {
-      chat_id: telegramConfig.chatId,
-      text,
-      disable_web_page_preview: true,
-      allow_sending_without_reply: true,
-      ...(Number.isInteger(messageThreadId) && messageThreadId > 0 ? { message_thread_id: messageThreadId } : {})
-    };
+      idempotencyKey
+    });
+    if (serverResult.ok) return serverResult;
+    lastErrorMessage = serverResult.message || lastErrorMessage;
+  }
+
+  if (hasDirectTelegram) {
+    const directResult = await sendTelegramReportDirect({
+      telegramConfig,
+      text
+    });
+    if (directResult.ok) return directResult;
+    lastErrorMessage = directResult.message || lastErrorMessage;
+  }
+
+  return {
+    ok: false,
+    message: lastErrorMessage || "Не удалось отправить отчет."
+  };
+}
+
+async function sendTelegramReportViaBackend(payload) {
+  const telegramConfig = payload.telegramConfig;
+  const idempotencyKey = String(payload.idempotencyKey || "").trim();
 
   try {
-    const response = await fetch(endpoint, {
+    const response = await fetch(`${telegramConfig.apiBaseUrl}/api/telegram/send-report`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(hasServerEndpoint && idempotencyKey ? { "X-Idempotency-Key": idempotencyKey } : {})
+        ...(idempotencyKey ? { "X-Idempotency-Key": idempotencyKey } : {})
       },
-      body: JSON.stringify(payloadBody)
+      body: JSON.stringify({
+        dateISO: payload.reportDateISO,
+        userEmail: getCurrentUser()?.email || "",
+        text: payload.text,
+        ...(idempotencyKey ? { idempotencyKey } : {})
+      })
     });
 
-    let payload = null;
+    let body = null;
     try {
-      payload = await response.json();
+      body = await response.json();
     } catch (_error) {
-      payload = null;
+      body = null;
     }
 
-    if (!response.ok || !payload?.ok) {
+    if (!response.ok || !body?.ok) {
       return {
         ok: false,
-        message: payload?.message || payload?.description || `Ошибка отправки отчета (${response.status}).`
+        message: body?.message || body?.description || `Ошибка отправки отчета (${response.status}).`
       };
     }
 
     return {
       ok: true,
-      message: payload?.message || "Отчет отправлен в Telegram."
+      message: body?.message || "Отчет отправлен в Telegram."
     };
   } catch (error) {
-    console.error("sendTodayReportToTelegram error:", error);
+    console.error("sendTelegramReportViaBackend error:", error);
     return {
       ok: false,
-      message: hasServerEndpoint
-        ? "Сервер отправки недоступен. Проверьте apiBaseUrl и запуск backend."
-        : "Не удалось отправить отчет напрямую в Telegram."
+      message: "Сервер отправки недоступен."
     };
+  }
+}
+
+async function sendTelegramReportDirect(payload) {
+  const telegramConfig = payload.telegramConfig;
+  const endpoint = `https://api.telegram.org/bot${telegramConfig.botToken}/sendMessage`;
+  const messageThreadId = Number(telegramConfig.messageThreadId);
+  const body = {
+    chat_id: telegramConfig.chatId,
+    text: payload.text,
+    disable_web_page_preview: true,
+    allow_sending_without_reply: true,
+    ...(Number.isInteger(messageThreadId) && messageThreadId > 0 ? { message_thread_id: messageThreadId } : {})
+  };
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(body)
+    });
+
+    let result = null;
+    try {
+      result = await response.json();
+    } catch (_error) {
+      result = null;
+    }
+
+    if (!response.ok || !result?.ok) {
+      return {
+        ok: false,
+        message: result?.description || result?.message || `Ошибка Telegram API (${response.status}).`
+      };
+    }
+
+    return {
+      ok: true,
+      message: "Отчет отправлен в Telegram."
+    };
+  } catch (error) {
+    console.error("sendTelegramReportDirect error:", error);
+    const compatibilitySent = await sendTelegramReportDirectNoCors(endpoint, body);
+    if (compatibilitySent) {
+      return {
+        ok: true,
+        message: "Отчет отправлен в Telegram (режим совместимости)."
+      };
+    }
+
+    return {
+      ok: false,
+      message: "Не удалось отправить отчет напрямую в Telegram."
+    };
+  }
+}
+
+async function sendTelegramReportDirectNoCors(endpoint, body) {
+  try {
+    const form = new URLSearchParams();
+    Object.entries(body || {}).forEach(([key, value]) => {
+      if (value === undefined || value === null || value === "") return;
+      form.set(key, String(value));
+    });
+
+    await fetch(endpoint, {
+      method: "POST",
+      mode: "no-cors",
+      body: form
+    });
+    return true;
+  } catch (_error) {
+    return false;
   }
 }
 
