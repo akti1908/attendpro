@@ -531,90 +531,91 @@ function buildAttendanceReportText(payload) {
   const dateISO = normalizeISODate(payload?.dateISO);
   const userEmail = String(payload?.userEmail || "").trim() || "-";
   const sessions = getSessionsForDate(appState, dateISO);
-  const personalTypeLabel = {
-    personal: "персональная",
-    split: "сплит",
-    mini_group: "мини-группа"
-  };
-
   const lines = [
     "AttendPro: отчет посещаемости",
-    `Дата: ${formatRuDate(dateISO)}`,
+    `Дата: ${formatRuDate(dateISO)}, ${formatRuWeekday(dateISO)}`,
     `Аккаунт: ${userEmail}`,
     ""
   ];
 
-  if (!sessions.length) {
-    lines.push("Сегодня занятий нет.");
-    return limitTelegramText(lines.join("\n"));
-  }
+  let presentCount = 0;
+  let absentCount = 0;
+  let transferredCount = 0;
+  let totalStudents = 0;
 
-  let personalPlannedCount = 0;
-  let groupTotal = 0;
-  let groupPresent = 0;
-  let groupAbsent = 0;
-  let groupUnmarked = 0;
-  const unmarkedLines = [];
-
-  const personalRows = sessions
-    .filter((entry) => entry.type === "personal")
-    .map((entry) => {
-      const trainingType = personalTypeLabel[entry.trainingType] ? entry.trainingType : "personal";
-      const status = String(entry.data?.status || "запланировано");
-      if (status === "запланировано") {
-        personalPlannedCount += 1;
-        unmarkedLines.push(`- ${entry.data.time} ${entry.studentName} (${personalTypeLabel[trainingType]})`);
-      }
-      return `- ${entry.data.time} ${entry.studentName}: ${status}`;
-    });
-
+  const personalRows = sessions.filter((entry) => entry.type === "personal");
+  lines.push("Ученики:");
   if (personalRows.length) {
-    lines.push(...personalRows);
+    personalRows.forEach((entry) => {
+      const participantsCount = getServerPersonalParticipantsCount(entry);
+      const statusInfo = mapServerPersonalStatusToReport(entry.data?.status);
+      totalStudents += participantsCount;
+      if (statusInfo.bucket === "present") presentCount += participantsCount;
+      if (statusInfo.bucket === "absent") absentCount += participantsCount;
+      if (statusInfo.bucket === "transferred") transferredCount += participantsCount;
+      lines.push(`- ${entry.data.time} ${entry.studentName} ${statusInfo.label}`);
+    });
   } else {
-    lines.push("- Нет персональных занятий");
+    lines.push("- Нет персональных/сплит/мини-группа занятий");
   }
 
   lines.push("");
   lines.push("Группы:");
-
-  const groupRows = sessions
-    .filter((entry) => entry.type === "group")
-    .map((entry) => {
-      groupTotal += 1;
-      const marks = Object.values(entry.data?.attendance || {});
-      const presentCount = marks.filter((item) => item === "присутствовал").length;
-      const absentCount = marks.filter((item) => item === "отсутствовал").length;
-      const groupSize = Array.isArray(entry.students) ? entry.students.length : 0;
-      const unmarkedCount = Math.max(0, groupSize - presentCount - absentCount);
-      groupPresent += presentCount;
-      groupAbsent += absentCount;
-      groupUnmarked += unmarkedCount;
-
-      if (unmarkedCount > 0) {
-        unmarkedLines.push(`- ${entry.data.time} ${entry.groupName}: без отметки ${unmarkedCount}`);
+  const groupRows = sessions.filter((entry) => entry.type === "group");
+  if (groupRows.length) {
+    groupRows.forEach((entry) => {
+      lines.push(`- ${entry.data.time} ${entry.groupName}`);
+      const students = Array.isArray(entry.students) ? entry.students : [];
+      if (!students.length) {
+        lines.push("  - Нет учеников");
+        return;
       }
 
-      return `- ${entry.data.time} ${entry.groupName}: +${presentCount}/-${absentCount}, без отметки ${unmarkedCount}`;
+      students.forEach((student) => {
+        const statusRaw = entry.data?.attendance?.[student.id];
+        const statusInfo = mapServerGroupStatusToReport(statusRaw);
+        totalStudents += 1;
+        if (statusInfo.bucket === "present") presentCount += 1;
+        if (statusInfo.bucket === "absent") absentCount += 1;
+        if (statusInfo.bucket === "transferred") transferredCount += 1;
+        lines.push(`  - ${student.name} ${statusInfo.label}`);
+      });
     });
-
-  if (groupRows.length) {
-    lines.push(...groupRows);
   } else {
     lines.push("- Нет групповых занятий");
   }
 
   lines.push("");
-  lines.push("Итого не отмечено:");
-  if (unmarkedLines.length) {
-    lines.push(...unmarkedLines);
-  } else {
-    lines.push("- Нет неотмеченных");
-  }
-
-  lines.push(`Персональные/сплиты/мини-группы без отметки: ${personalPlannedCount}`);
-  lines.push(`Группы: ${groupTotal} (присутствовали: ${groupPresent}, отсутствовали: ${groupAbsent}, без отметки: ${groupUnmarked})`);
+  lines.push("Статистика:");
+  lines.push(`Перенесено: ${transferredCount}`);
+  lines.push(`Не пришел: ${absentCount}`);
+  lines.push(`Пришел: ${presentCount}`);
+  lines.push(`Всего учеников: ${totalStudents}`);
 
   return limitTelegramText(lines.join("\n"));
+}
+
+function mapServerPersonalStatusToReport(statusValue) {
+  const status = String(statusValue || "").trim();
+  if (status === "пришел") return { label: "✅", bucket: "present" };
+  if (status === "не пришел") return { label: "❌", bucket: "absent" };
+  return { label: "Перенесено", bucket: "transferred" };
+}
+
+function mapServerGroupStatusToReport(statusValue) {
+  const status = String(statusValue || "").trim();
+  if (status === "присутствовал") return { label: "✅", bucket: "present" };
+  if (status === "отсутствовал") return { label: "❌", bucket: "absent" };
+  return { label: "Перенесено", bucket: "transferred" };
+}
+
+function getServerPersonalParticipantsCount(entry) {
+  const type = entry?.trainingType;
+  const participants = Array.isArray(entry?.participants) ? entry.participants.filter(Boolean) : [];
+  if (participants.length) return participants.length;
+  if (type === "split") return 2;
+  if (type === "mini_group") return 3;
+  return 1;
 }
 
 function getSessionsForDate(appState, dateISO) {
@@ -630,6 +631,7 @@ function getSessionsForDate(appState, dateISO) {
         type: "personal",
         studentName: String(student?.name || "Ученик").trim(),
         trainingType: normalizeTrainingType(student?.trainingType),
+        participants: Array.isArray(student?.participants) ? student.participants : [],
         data: {
           time: String(session?.time || "00:00"),
           status: String(session?.status || "запланировано")
@@ -669,6 +671,14 @@ function formatRuDate(isoDate) {
   const [year, month, day] = String(isoDate).split("-");
   if (!year || !month || !day) return String(isoDate);
   return `${day}.${month}.${year}`;
+}
+
+function formatRuWeekday(isoDate) {
+  const [year, month, day] = String(isoDate || "").split("-").map(Number);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return "-";
+  const date = new Date(year, month - 1, day);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleDateString("ru-RU", { weekday: "long" });
 }
 
 function limitTelegramText(text) {
