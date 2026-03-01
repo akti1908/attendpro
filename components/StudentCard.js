@@ -3,6 +3,7 @@ const MINI_GROUP_MAX_PARTICIPANTS = 5;
 
 // Карточка персональной/сплит/мини-группы тренировки.
 export function renderStudentCard(student, ctx) {
+  const activationDate = normalizeDateISO(student.activationDate, ctx.getTodayISO());
   const packageOptions = ctx.packageOptions[student.trainingType] || [];
   const packageSelect = renderPackageOptions(packageOptions, student.totalTrainings, student.trainingType);
   const packageHistory = renderPackageHistory(student, ctx);
@@ -90,6 +91,7 @@ export function renderStudentCard(student, ctx) {
           ${isMiniGroup
             ? `<input data-student-field="mini-members" type="text" value="${miniMembersValue}" placeholder="Участники мини-группы через запятую (3-5)" />`
             : ""}
+          <input data-student-field="activation-date" type="date" value="${activationDate}" />
           <select data-student-field="hour">${renderHourOptions(availableHours, resolvedHour)}</select>
         </div>
 
@@ -119,6 +121,7 @@ export function renderStudentsManager(root, ctx) {
   const allowedWorkDays = normalizeAllowedDays(ctx.workSchedule?.days);
   const availableHours = resolveAvailableHours(ctx.workHours);
   const defaultHour = getDefaultHour(availableHours);
+  const defaultActivationDate = normalizeDateISO(ctx.state?.selectedDate, ctx.getTodayISO());
 
   root.innerHTML = `
     <section class="card">
@@ -151,6 +154,7 @@ export function renderStudentsManager(root, ctx) {
             <select id="package-select" name="packageCount" required>
               ${renderPackageOptions(ctx.packageOptions.personal, 10, "personal")}
             </select>
+            <input id="activation-date" name="activationDate" type="date" required value="${defaultActivationDate}" />
             <select required name="hour">${renderHourOptions(availableHours, defaultHour)}</select>
           </div>
 
@@ -169,6 +173,7 @@ export function renderStudentsManager(root, ctx) {
   const primaryName = root.querySelector("#primary-name");
   const secondName = root.querySelector("#secondary-name");
   const miniMembers = root.querySelector("#mini-members");
+  const activationDateInput = root.querySelector("#activation-date");
   const studentCreateModal = root.querySelector("#student-create-modal");
   const openStudentModalButton = root.querySelector("#open-student-modal");
   const studentForm = root.querySelector("#student-form");
@@ -204,6 +209,9 @@ export function renderStudentsManager(root, ctx) {
   const resetStudentForm = () => {
     studentForm?.reset();
     syncFormByType();
+    if (activationDateInput) {
+      activationDateInput.value = defaultActivationDate;
+    }
   };
 
   const closeStudentModal = () => {
@@ -216,6 +224,9 @@ export function renderStudentsManager(root, ctx) {
     studentCreateModal?.classList.remove("is-hidden");
     document.body.classList.add("modal-open");
     syncFormByType();
+    if (activationDateInput) {
+      activationDateInput.value = defaultActivationDate;
+    }
     primaryName?.focus();
   };
 
@@ -259,6 +270,7 @@ export function renderStudentsManager(root, ctx) {
       secondaryName: formData.get("secondaryName"),
       memberNames: miniNames,
       packageCount: Number(formData.get("packageCount")),
+      activationDate: String(formData.get("activationDate") || ""),
       scheduleDays,
       time: hourToTimeString(formData.get("hour"))
     });
@@ -330,6 +342,7 @@ export function renderStudentsManager(root, ctx) {
       const primaryNameValue = String(panel.querySelector('[data-student-field="primary-name"]')?.value || "").trim();
       const secondaryNameValue = String(panel.querySelector('[data-student-field="secondary-name"]')?.value || "").trim();
       const miniMembersValue = parseParticipantsInput(panel.querySelector('[data-student-field="mini-members"]')?.value || "");
+      const activationDateValue = String(panel.querySelector('[data-student-field="activation-date"]')?.value || "").trim();
       const hour = String(panel.querySelector('[data-student-field="hour"]')?.value || "0");
       const scheduleDays = [...panel.querySelectorAll('input[data-day-input="1"]:checked')].map((item) => Number(item.value));
 
@@ -337,6 +350,7 @@ export function renderStudentsManager(root, ctx) {
         primaryName: primaryNameValue,
         secondaryName: secondaryNameValue,
         memberNames: miniMembersValue,
+        activationDate: activationDateValue,
         scheduleDays,
         time: hourToTimeString(hour)
       });
@@ -489,6 +503,12 @@ function parseParticipantsInput(value) {
 function hourToTimeString(hourValue) {
   const hour = Number(hourValue);
   return `${String(hour).padStart(2, "0")}:00`;
+}
+
+function normalizeDateISO(value, fallback) {
+  const raw = String(value || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  return String(fallback || "");
 }
 
 function formatMoney(value) {

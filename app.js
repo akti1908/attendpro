@@ -1378,6 +1378,8 @@ function normalizeStudent(rawStudent, fallbackOwnerId = null) {
   const packageCount = normalizePackageCount(rawStudent.totalTrainings);
   const activePackage = normalizeActivePackage(rawStudent.activePackage, trainingType, packageCount);
   const ownerId = normalizeOwnerId(rawStudent.ownerId, fallbackOwnerId);
+  const createdAt = isValidISODateTime(rawStudent.createdAt) ? rawStudent.createdAt : new Date().toISOString();
+  const activationDate = normalizeStudentActivationDate(rawStudent.activationDate, createdAt, getTodayISO());
 
   const student = {
     id: String(rawStudent.id || createId("student")),
@@ -1392,7 +1394,8 @@ function normalizeStudent(rawStudent, fallbackOwnerId = null) {
     activePackage,
     packagesHistory: normalizePackagesHistory(rawStudent.packagesHistory, activePackage, trainingType),
     sessions: Array.isArray(rawStudent.sessions) ? rawStudent.sessions.map((session) => normalizeStudentSession(session, activePackage, trainingType)) : [],
-    createdAt: rawStudent.createdAt || new Date().toISOString()
+    activationDate,
+    createdAt
   };
 
   if (trainingType === "mini_group" && student.activePackage) {
@@ -1657,6 +1660,13 @@ function ensureISODate(value, fallback) {
   if (typeof value !== "string") return fallback;
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
   return fallback;
+}
+
+function normalizeStudentActivationDate(value, createdAt, fallback = getTodayISO()) {
+  const createdDateISO = typeof createdAt === "string" && /^\d{4}-\d{2}-\d{2}T/.test(createdAt)
+    ? createdAt.slice(0, 10)
+    : fallback;
+  return ensureISODate(String(value || "").trim(), createdDateISO);
 }
 
 function ensureMonthISO(value, fallback) {
@@ -2361,6 +2371,12 @@ function logoutUser() {
 
 function rebuildStudentPlannedSessions(student, startDateISO = getTodayISO(), options = {}) {
   const forceRegenerateFuture = Boolean(options.forceRegenerateFuture);
+  const requestedStartDate = ensureISODate(startDateISO, getTodayISO());
+  const activationDate = normalizeStudentActivationDate(student.activationDate, student.createdAt, requestedStartDate);
+  const rebuildStartDate = compareISODate(requestedStartDate, activationDate) < 0
+    ? activationDate
+    : requestedStartDate;
+  student.activationDate = activationDate;
   const targetCount = Math.max(0, Number(student.remainingTrainings) || 0);
   const coachIncome = getCoachIncomePerSession(student.activePackage, student.trainingType);
   const allSessions = Array.isArray(student.sessions) ? student.sessions : [];
@@ -2375,7 +2391,11 @@ function rebuildStudentPlannedSessions(student, startDateISO = getTodayISO(), op
       return;
     }
 
-    const isPast = compareISODate(session.date, startDateISO) < 0;
+    if (compareISODate(session.date, activationDate) < 0) {
+      return;
+    }
+
+    const isPast = compareISODate(session.date, rebuildStartDate) < 0;
     if (isPast) {
       reserved.push(session);
       return;
@@ -2407,7 +2427,7 @@ function rebuildStudentPlannedSessions(student, startDateISO = getTodayISO(), op
   }
 
   const generated = [];
-  let cursor = startDateISO;
+  let cursor = rebuildStartDate;
   let guard = 0;
   while (preservedPlanned.length + generated.length < targetCount && guard < 3660) {
     const day = parseISODate(cursor).getDay();
@@ -2522,6 +2542,7 @@ function addStudent(payload) {
   const secondaryName = String(payload.secondaryName || "").trim();
   const miniMemberNames = normalizeMiniGroupNames(payload.memberNames);
   const packageCount = Number(payload.packageCount);
+  const activationDate = normalizeStudentActivationDate(payload.activationDate, null, getTodayISO());
   const scheduleDays = sanitizeWeekDays(payload.scheduleDays);
   const time = sanitizeHourTime(payload.time);
 
@@ -2586,10 +2607,11 @@ function addStudent(payload) {
     activePackage,
     packagesHistory: [{ ...activePackage }],
     sessions: [],
+    activationDate,
     createdAt: new Date().toISOString()
   };
 
-  rebuildStudentPlannedSessions(student, getTodayISO());
+  rebuildStudentPlannedSessions(student, activationDate);
   state.students.push(student);
   saveState({ dataChanged: true });
   renderApp();
@@ -2657,6 +2679,7 @@ function updateStudentCardData(studentId, payload) {
   const miniMemberNames = normalizeMiniGroupNames(payload?.memberNames);
   const scheduleDays = sanitizeWeekDays(payload?.scheduleDays);
   const time = sanitizeHourTime(payload?.time || student.time);
+  const activationDate = normalizeStudentActivationDate(payload?.activationDate, student.createdAt, student.activationDate);
 
   if ((student.trainingType === "personal" || student.trainingType === "split") && !primaryName) {
     alert("Введите имя ученика.");
@@ -2706,7 +2729,13 @@ function updateStudentCardData(studentId, payload) {
 
   student.time = time;
   student.scheduleDays = scheduleDays;
-  rebuildStudentPlannedSessions(student, getTodayISO(), { forceRegenerateFuture: true });
+  const activationDateChanged = activationDate !== student.activationDate;
+  student.activationDate = activationDate;
+  rebuildStudentPlannedSessions(
+    student,
+    activationDateChanged ? activationDate : getTodayISO(),
+    { forceRegenerateFuture: true }
+  );
 
   saveState({ dataChanged: true });
   renderApp();
