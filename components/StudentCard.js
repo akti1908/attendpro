@@ -116,6 +116,33 @@ export function renderStudentCard(student, ctx) {
   `;
 }
 
+function renderStudentCardPreview(student, ctx) {
+  const isSplit = student.trainingType === "split";
+  const isMiniGroup = student.trainingType === "mini_group";
+  const typeLabel = isSplit ? "Сплит" : isMiniGroup ? "Мини-группа" : "Персональная";
+  const participantsLabel = isSplit
+    ? `${student.participants[0] || ""} + ${student.participants[1] || ""}`
+    : isMiniGroup
+      ? student.participants.join(", ")
+      : student.participants[0] || "";
+  const searchText = `${student.name} ${participantsLabel} ${typeLabel}`.toLowerCase();
+  const activationDate = normalizeDateISO(student.activationDate, ctx.getTodayISO());
+
+  return `
+    <article class="card card-item" data-student-preview="${student.id}" data-search-text="${escapeAttr(searchText)}">
+      <div class="card-head">
+        <h3>${escapeHtml(student.name)}</h3>
+        <button class="btn small-btn" type="button" data-action="open-student-popup" data-student-id="${student.id}">Открыть</button>
+      </div>
+      <p class="muted">Формат: ${typeLabel}</p>
+      <p class="muted">Участники: ${escapeHtml(participantsLabel || "-")}</p>
+      <p class="muted">Дата активации: ${ctx.formatDate(activationDate)}</p>
+      <p class="muted">Осталось: ${student.remainingTrainings} / ${student.totalTrainings}</p>
+      <p class="muted">Дни: ${student.scheduleDays.map((day) => ctx.dayLabel(day)).join(", ")} | Время: ${student.time}</p>
+    </article>
+  `;
+}
+
 // Экран управления карточками персональных/сплит/мини-групп тренировок.
 export function renderStudentsManager(root, ctx) {
   const allowedWorkDays = normalizeAllowedDays(ctx.workSchedule?.days);
@@ -166,6 +193,16 @@ export function renderStudentsManager(root, ctx) {
         </form>
       </div>
     </div>
+
+    <div id="student-view-modal" class="form-modal is-hidden" role="dialog" aria-modal="true" aria-labelledby="student-view-title">
+      <div class="form-modal-card student-view-modal-card">
+        <div class="form-modal-head">
+          <h3 id="student-view-title">Карточка</h3>
+          <button class="btn small-btn" type="button" data-action="close-student-view-modal">Закрыть</button>
+        </div>
+        <div id="student-view-content"></div>
+      </div>
+    </div>
   `;
 
   const typeSelect = root.querySelector("#training-type");
@@ -175,6 +212,8 @@ export function renderStudentsManager(root, ctx) {
   const miniMembers = root.querySelector("#mini-members");
   const activationDateInput = root.querySelector("#activation-date");
   const studentCreateModal = root.querySelector("#student-create-modal");
+  const studentViewModal = root.querySelector("#student-view-modal");
+  const studentViewContent = root.querySelector("#student-view-content");
   const openStudentModalButton = root.querySelector("#open-student-modal");
   const studentForm = root.querySelector("#student-form");
 
@@ -221,6 +260,7 @@ export function renderStudentsManager(root, ctx) {
   };
 
   const openStudentModal = () => {
+    studentViewModal?.classList.add("is-hidden");
     studentCreateModal?.classList.remove("is-hidden");
     document.body.classList.add("modal-open");
     syncFormByType();
@@ -237,6 +277,33 @@ export function renderStudentsManager(root, ctx) {
 
   studentCreateModal?.addEventListener("click", (event) => {
     if (event.target === studentCreateModal) closeStudentModal();
+  });
+
+  const closeStudentViewModal = () => {
+    studentViewModal?.classList.add("is-hidden");
+    if (studentViewContent) {
+      studentViewContent.innerHTML = "";
+    }
+    document.body.classList.remove("modal-open");
+  };
+
+  const openStudentViewModal = (studentId) => {
+    const student = ctx.state.students.find((item) => item.id === studentId);
+    if (!student || !studentViewContent) return;
+
+    studentCreateModal?.classList.add("is-hidden");
+    studentViewContent.innerHTML = renderStudentCard(student, ctx);
+    bindStudentCardActions(studentViewContent, ctx);
+    studentViewModal?.classList.remove("is-hidden");
+    document.body.classList.add("modal-open");
+  };
+
+  root.querySelectorAll("[data-action='close-student-view-modal']").forEach((button) => {
+    button.addEventListener("click", closeStudentViewModal);
+  });
+
+  studentViewModal?.addEventListener("click", (event) => {
+    if (event.target === studentViewModal) closeStudentViewModal();
   });
 
   studentForm?.addEventListener("submit", (event) => {
@@ -278,14 +345,14 @@ export function renderStudentsManager(root, ctx) {
 
   const studentsList = root.querySelector("#students-list");
   studentsList.innerHTML = ctx.state.students.length
-    ? ctx.state.students.map((student) => renderStudentCard(student, ctx)).join("")
+    ? ctx.state.students.map((student) => renderStudentCardPreview(student, ctx)).join("")
     : `<p class="muted">Карточек пока нет.</p>`;
 
   const studentsSearchInput = root.querySelector("#students-search");
   const studentsSearchEmpty = root.querySelector("#students-search-empty");
   const applyStudentsFilter = () => {
     const query = String(studentsSearchInput?.value || "").trim().toLowerCase();
-    const cards = [...studentsList.querySelectorAll("[data-student-card]")];
+    const cards = [...studentsList.querySelectorAll("[data-student-preview]")];
     if (!cards.length) {
       studentsSearchEmpty?.classList.add("is-hidden");
       return;
@@ -308,7 +375,17 @@ export function renderStudentsManager(root, ctx) {
   studentsSearchInput?.addEventListener("input", applyStudentsFilter);
   applyStudentsFilter();
 
-  studentsList.querySelectorAll("[data-action='toggle-student-edit']").forEach((button) => {
+  studentsList.querySelectorAll("[data-action='open-student-popup']").forEach((button) => {
+    button.addEventListener("click", () => {
+      openStudentViewModal(button.dataset.studentId);
+    });
+  });
+}
+
+function bindStudentCardActions(container, ctx) {
+  if (!container) return;
+
+  container.querySelectorAll("[data-action='toggle-student-edit']").forEach((button) => {
     button.addEventListener("click", () => {
       const card = button.closest("[data-student-card]");
       if (!card) return;
@@ -324,7 +401,7 @@ export function renderStudentsManager(root, ctx) {
     });
   });
 
-  studentsList.querySelectorAll("[data-action='cancel-student-edit']").forEach((button) => {
+  container.querySelectorAll("[data-action='cancel-student-edit']").forEach((button) => {
     button.addEventListener("click", () => {
       const card = button.closest("[data-student-card]");
       if (!card) return;
@@ -333,7 +410,7 @@ export function renderStudentsManager(root, ctx) {
     });
   });
 
-  studentsList.querySelectorAll("[data-action='save-student-edit']").forEach((button) => {
+  container.querySelectorAll("[data-action='save-student-edit']").forEach((button) => {
     button.addEventListener("click", () => {
       const card = button.closest("[data-student-card]");
       const panel = card?.querySelector("[data-student-edit-panel]");
@@ -354,21 +431,26 @@ export function renderStudentsManager(root, ctx) {
         scheduleDays,
         time: hourToTimeString(hour)
       });
+      document.body.classList.remove("modal-open");
     });
   });
 
-  studentsList.querySelectorAll("[data-action='apply-package']").forEach((button) => {
+  container.querySelectorAll("[data-action='apply-package']").forEach((button) => {
     button.addEventListener("click", () => {
-      const select = studentsList.querySelector(`[data-package-select-for='${button.dataset.studentId}']`);
+      const card = button.closest("[data-student-card]");
+      const select = card?.querySelector(`[data-package-select-for='${button.dataset.studentId}']`);
+      if (!select) return;
       ctx.actions.addStudentPackage(button.dataset.studentId, Number(select.value));
+      document.body.classList.remove("modal-open");
     });
   });
 
-  studentsList.querySelectorAll("[data-action='delete-student']").forEach((button) => {
+  container.querySelectorAll("[data-action='delete-student']").forEach((button) => {
     button.addEventListener("click", () => {
       const isConfirmed = window.confirm("Удалить карточку? Это действие нельзя отменить.");
       if (!isConfirmed) return;
       ctx.actions.deleteStudentCard(button.dataset.studentId);
+      document.body.classList.remove("modal-open");
     });
   });
 }

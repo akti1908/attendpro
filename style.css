@@ -210,6 +210,14 @@ body.menu-open .menu-overlay {
   padding: 14px;
 }
 
+.student-view-modal-card {
+  width: min(980px, 100%);
+}
+
+#student-view-content .card {
+  margin: 0;
+}
+
 .form-modal-head {
   display: flex;
   align-items: center;
