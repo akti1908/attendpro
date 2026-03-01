@@ -419,12 +419,14 @@ async function sendTodayReportToTelegram(targetDateISO = null, options = {}) {
   }
 
   const telegramConfig = getTelegramReportConfig();
-  const hasServerEndpoint = Boolean(telegramConfig.apiBaseUrl);
+  const backendTransport = getTelegramBackendTransportState(telegramConfig);
+  const hasServerEndpoint = backendTransport.canUseBackend;
   const hasDirectTelegram = Boolean(telegramConfig.botToken && telegramConfig.chatId);
   if (!hasServerEndpoint && !hasDirectTelegram) {
+    const guidance = backendTransport.reason || "Telegram не настроен. Укажите ATTENDPRO_TELEGRAM.apiBaseUrl или botToken/chatId.";
     return {
       ok: false,
-      message: "Telegram не настроен. Укажите ATTENDPRO_TELEGRAM.apiBaseUrl или botToken/chatId."
+      message: guidance
     };
   }
 
@@ -432,7 +434,7 @@ async function sendTodayReportToTelegram(targetDateISO = null, options = {}) {
   const text = buildTodayAttendanceReportText(reportDateISO);
   const idempotencyKey = String(options?.idempotencyKey || "").trim();
 
-  let lastErrorMessage = "";
+  let lastErrorMessage = backendTransport.reason || "";
 
   if (hasServerEndpoint) {
     const serverResult = await sendTelegramReportViaBackend({
@@ -463,10 +465,16 @@ async function sendTodayReportToTelegram(targetDateISO = null, options = {}) {
 async function sendTelegramReportViaBackend(payload) {
   const telegramConfig = payload.telegramConfig;
   const idempotencyKey = String(payload.idempotencyKey || "").trim();
+  const timeoutMs = 12000;
+  const controller = typeof AbortController === "function" ? new AbortController() : null;
+  const timeoutId = controller
+    ? setTimeout(() => controller.abort(new Error("REQUEST_TIMEOUT")), timeoutMs)
+    : null;
 
   try {
     const response = await fetch(`${telegramConfig.apiBaseUrl}/api/telegram/send-report`, {
       method: "POST",
+      ...(controller ? { signal: controller.signal } : {}),
       headers: {
         "Content-Type": "application/json",
         ...(idempotencyKey ? { "X-Idempotency-Key": idempotencyKey } : {})
@@ -499,10 +507,26 @@ async function sendTelegramReportViaBackend(payload) {
     };
   } catch (error) {
     console.error("sendTelegramReportViaBackend error:", error);
+    if (isFetchAbortError(error)) {
+      return {
+        ok: false,
+        message: "Сервер отправки не ответил вовремя."
+      };
+    }
+
+    if (isMixedContentBlocked(telegramConfig.apiBaseUrl)) {
+      return {
+        ok: false,
+        message: "Браузер блокирует http:// URL из https-страницы. Откройте AttendPro через http://127.0.0.1:8080."
+      };
+    }
+
     return {
       ok: false,
       message: "Сервер отправки недоступен."
     };
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
   }
 }
 
@@ -592,6 +616,37 @@ function getTelegramReportConfig() {
   };
 }
 
+function getTelegramBackendTransportState(telegramConfig) {
+  const apiBaseUrl = String(telegramConfig?.apiBaseUrl || "").trim();
+  if (!apiBaseUrl) {
+    return {
+      canUseBackend: false,
+      reason: ""
+    };
+  }
+
+  if (isMixedContentBlocked(apiBaseUrl)) {
+    return {
+      canUseBackend: false,
+      reason: "Текущий backend URL блокируется браузером (https-страница не может вызвать http backend)."
+    };
+  }
+
+  const currentHost = String(window.location.hostname || "").toLowerCase();
+  const targetHost = parseHostname(apiBaseUrl);
+  if (targetHost && isLocalhostOrigin(targetHost) && !isLocalhostOrigin(currentHost)) {
+    return {
+      canUseBackend: false,
+      reason: "Локальный backend (127.0.0.1) доступен только на том устройстве, где запущен сервер."
+    };
+  }
+
+  return {
+    canUseBackend: true,
+    reason: ""
+  };
+}
+
 function resolveTelegramApiBaseUrl(value) {
   const explicitUrl = String(value || "")
     .trim()
@@ -621,6 +676,23 @@ function isServerAutoReportEnabled() {
 function isLocalhostOrigin(hostname) {
   const host = String(hostname || "").toLowerCase();
   return host === "localhost" || host === "127.0.0.1" || host === "::1";
+}
+
+function isMixedContentBlocked(apiBaseUrl) {
+  if (window.location.protocol !== "https:") return false;
+  return String(apiBaseUrl || "").toLowerCase().startsWith("http://");
+}
+
+function isFetchAbortError(error) {
+  return Boolean(error && (error.name === "AbortError" || error.message === "REQUEST_TIMEOUT"));
+}
+
+function parseHostname(url) {
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch (_error) {
+    return "";
+  }
 }
 
 function buildTelegramReportIdempotencyKey(payload = {}) {
