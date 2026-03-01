@@ -8,7 +8,10 @@ export function renderHome(root, ctx) {
   const editAllowed = ctx.actions.isEditingAllowedForSelectedDate();
   const showEditToggle = selectedDate !== todayISO;
   const sessions = ctx.getSessionsForDate(selectedDate);
-  const selectedDateLabel = ctx.formatDate(selectedDate);
+  const selectedWeekDay = getWeekDayLabel(selectedDate, ctx);
+  const selectedDateLabel = selectedWeekDay
+    ? `${ctx.formatDate(selectedDate)} (${selectedWeekDay})`
+    : ctx.formatDate(selectedDate);
 
   root.innerHTML = `
     <div class="journal-swipe-surface" data-journal-swipe-surface="1">
@@ -156,6 +159,19 @@ export function renderHome(root, ctx) {
 
     sendTodayReportButton.disabled = false;
   });
+}
+
+function getWeekDayLabel(dateISO, ctx) {
+  const parts = String(dateISO || "").split("-").map(Number);
+  if (parts.length !== 3 || parts.some((part) => !Number.isInteger(part))) return "";
+  const [year, month, day] = parts;
+  const date = new Date(year, month - 1, day);
+  if (Number.isNaN(date.getTime())) return "";
+
+  if (typeof ctx.dayLabel === "function") {
+    return String(ctx.dayLabel(date.getDay()) || "").trim();
+  }
+  return "";
 }
 
 function bindJournalSwipeNavigation(root, ctx) {
