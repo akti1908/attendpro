@@ -13,6 +13,8 @@ export function renderStudentCard(student, ctx) {
   const availableHours = resolveAvailableHours(
     typeof ctx.getWorkHoursForDays === "function" ? ctx.getWorkHoursForDays(student.scheduleDays) : ctx.workHours
   );
+  const scheduleSlots = normalizeScheduleSlots(student.scheduleSlots, student.scheduleDays, student.time);
+  const scheduleSummary = formatScheduleSummary(student.scheduleDays, scheduleSlots, ctx);
 
   const upcomingSessions = student.sessions
     .slice()
@@ -21,11 +23,13 @@ export function renderStudentCard(student, ctx) {
     .map((session) => `<li>${ctx.formatDate(session.date)} в ${session.time} - <strong>${escapeHtml(session.status)}</strong></li>`)
     .join("");
 
-  const editDayInputs = renderDayCheckboxes(
+  const editDayInputs = renderDayTimeRows(
     ctx.weekDays,
     student.scheduleDays,
+    scheduleSlots,
     `student-edit-day-${student.id}`,
-    allowedWorkDays
+    allowedWorkDays,
+    availableHours
   );
   const typeLabel = isSplit ? "Сплит" : isMiniGroup ? "Мини-группа" : "Персональная";
   const participantsLabel = isSplit
@@ -42,8 +46,6 @@ export function renderStudentCard(student, ctx) {
     : `${formatMoney(student.activePackage?.totalPrice || 0)} сом`;
 
   const activePackageCategory = String(student.activePackage?.trainerCategory || "I");
-  const selectedHour = Number(String(student.time || "00:00").slice(0, 2));
-  const resolvedHour = resolveSelectedHour(selectedHour, availableHours);
   const miniMembersValue = escapeAttr((student.participants || []).join(", "));
   const primaryFieldValue = isMiniGroup
     ? (student.name || "")
@@ -68,7 +70,7 @@ export function renderStudentCard(student, ctx) {
       <p class="muted">Текущий пакет: ${student.totalTrainings} тренировок / ${activePackagePrice} / Категория ${activePackageCategory}</p>
       ${isMiniGroup ? `<p class="muted">Размер мини-группы в пакете: ${miniParticipantsCount} чел.</p>` : ""}
       <p class="muted">Продления пакетов: ${Math.max(0, (student.packagesHistory || []).length - 1)}</p>
-      <p class="muted">Дни: ${student.scheduleDays.map((day) => ctx.dayLabel(day)).join(", ")} | Время: ${student.time}</p>
+      <p class="muted">Расписание: ${scheduleSummary}</p>
 
       <div class="session-actions package-controls">
         <select data-package-select-for="${student.id}">
@@ -92,10 +94,10 @@ export function renderStudentCard(student, ctx) {
             ? `<input data-student-field="mini-members" type="text" value="${miniMembersValue}" placeholder="Участники мини-группы через запятую (3-5)" />`
             : ""}
           <input data-student-field="activation-date" type="date" value="${activationDate}" />
-          <select data-student-field="hour">${renderHourOptions(availableHours, resolvedHour)}</select>
         </div>
 
-        <div class="days mt-8" data-edit-days-container="${student.id}">
+        <p class="muted mt-8">Дни и часы</p>
+        <div class="day-time-grid mt-8" data-day-time-root="1" data-edit-days-container="${student.id}">
           ${editDayInputs}
         </div>
 
@@ -127,6 +129,8 @@ function renderStudentCardPreview(student, ctx) {
       : student.participants[0] || "";
   const searchText = `${student.name} ${participantsLabel} ${typeLabel}`.toLowerCase();
   const activationDate = normalizeDateISO(student.activationDate, ctx.getTodayISO());
+  const scheduleSlots = normalizeScheduleSlots(student.scheduleSlots, student.scheduleDays, student.time);
+  const scheduleSummary = formatScheduleSummary(student.scheduleDays, scheduleSlots, ctx);
 
   return `
     <article class="card card-item" data-student-preview="${student.id}" data-search-text="${escapeAttr(searchText)}">
@@ -138,7 +142,7 @@ function renderStudentCardPreview(student, ctx) {
       <p class="muted">Участники: ${escapeHtml(participantsLabel || "-")}</p>
       <p class="muted">Дата активации: ${ctx.formatDate(activationDate)}</p>
       <p class="muted">Осталось: ${student.remainingTrainings} / ${student.totalTrainings}</p>
-      <p class="muted">Дни: ${student.scheduleDays.map((day) => ctx.dayLabel(day)).join(", ")} | Время: ${student.time}</p>
+      <p class="muted">Расписание: ${scheduleSummary}</p>
     </article>
   `;
 }
@@ -182,10 +186,12 @@ export function renderStudentsManager(root, ctx) {
               ${renderPackageOptions(ctx.packageOptions.personal, 10, "personal")}
             </select>
             <input id="activation-date" name="activationDate" type="date" required value="${defaultActivationDate}" />
-            <select required name="hour">${renderHourOptions(availableHours, defaultHour)}</select>
           </div>
 
-          <div id="student-days" class="days">${renderDayCheckboxes(ctx.weekDays, [], "student-day", allowedWorkDays)}</div>
+          <p class="muted">Дни и часы</p>
+          <div id="student-days" class="day-time-grid" data-day-time-root="1">
+            ${renderDayTimeRows(ctx.weekDays, [], {}, "student-day", allowedWorkDays, availableHours, defaultHour)}
+          </div>
           <div class="session-actions">
             <button class="btn btn-primary" type="submit">Создать карточку</button>
             <button class="btn" type="button" data-action="close-student-modal">Отмена</button>
@@ -216,6 +222,7 @@ export function renderStudentsManager(root, ctx) {
   const studentViewContent = root.querySelector("#student-view-content");
   const openStudentModalButton = root.querySelector("#open-student-modal");
   const studentForm = root.querySelector("#student-form");
+  const studentDaysContainer = root.querySelector("#student-days");
 
   const syncFormByType = () => {
     const type = String(typeSelect.value || "personal");
@@ -244,10 +251,13 @@ export function renderStudentsManager(root, ctx) {
 
   typeSelect.addEventListener("change", syncFormByType);
   syncFormByType();
+  bindDayTimeRowEvents(studentDaysContainer);
+  syncDayTimeRows(studentDaysContainer);
 
   const resetStudentForm = () => {
     studentForm?.reset();
     syncFormByType();
+    syncDayTimeRows(studentDaysContainer);
     if (activationDateInput) {
       activationDateInput.value = defaultActivationDate;
     }
@@ -311,7 +321,8 @@ export function renderStudentsManager(root, ctx) {
 
     const formData = new FormData(event.currentTarget);
     const trainingType = String(formData.get("trainingType") || "personal");
-    const scheduleDays = [...root.querySelectorAll('input[name="student-day"]:checked')].map((item) => Number(item.value));
+    const scheduleConfig = collectScheduleConfig(studentDaysContainer);
+    const { scheduleDays, scheduleSlots, time } = scheduleConfig;
     const miniNames = parseParticipantsInput(formData.get("miniMembers"));
 
     if (!scheduleDays.length) {
@@ -339,7 +350,8 @@ export function renderStudentsManager(root, ctx) {
       packageCount: Number(formData.get("packageCount")),
       activationDate: String(formData.get("activationDate") || ""),
       scheduleDays,
-      time: hourToTimeString(formData.get("hour"))
+      scheduleSlots,
+      time
     });
   });
 
@@ -397,7 +409,10 @@ function bindStudentCardActions(container, ctx) {
       setStudentCardEditMode(card, willOpen);
       if (!willOpen) {
         resetStudentEditPanel(card);
+        return;
       }
+      bindDayTimeRowEvents(panel);
+      syncDayTimeRows(panel);
     });
   });
 
@@ -420,8 +435,8 @@ function bindStudentCardActions(container, ctx) {
       const secondaryNameValue = String(panel.querySelector('[data-student-field="secondary-name"]')?.value || "").trim();
       const miniMembersValue = parseParticipantsInput(panel.querySelector('[data-student-field="mini-members"]')?.value || "");
       const activationDateValue = String(panel.querySelector('[data-student-field="activation-date"]')?.value || "").trim();
-      const hour = String(panel.querySelector('[data-student-field="hour"]')?.value || "0");
-      const scheduleDays = [...panel.querySelectorAll('input[data-day-input="1"]:checked')].map((item) => Number(item.value));
+      const scheduleConfig = collectScheduleConfig(panel);
+      const { scheduleDays, scheduleSlots, time } = scheduleConfig;
 
       ctx.actions.updateStudentCardData(button.dataset.studentId, {
         primaryName: primaryNameValue,
@@ -429,7 +444,8 @@ function bindStudentCardActions(container, ctx) {
         memberNames: miniMembersValue,
         activationDate: activationDateValue,
         scheduleDays,
-        time: hourToTimeString(hour)
+        scheduleSlots,
+        time
       });
       document.body.classList.remove("modal-open");
     });
@@ -476,24 +492,148 @@ function resetStudentEditPanel(card) {
     }
     control.value = control.defaultValue;
   });
+  syncDayTimeRows(panel);
 }
 
-function renderDayCheckboxes(weekDays, selected = [], inputName = "student-day", allowedDays = []) {
+function normalizeScheduleSlots(slots, scheduleDays, fallbackTime = "10:00") {
+  const source = slots && typeof slots === "object" && !Array.isArray(slots) ? slots : {};
+  const normalizedDays = (Array.isArray(scheduleDays) ? scheduleDays : []).map((day) => Number(day));
+  const fallback = typeof fallbackTime === "string" ? fallbackTime : "10:00";
+  const normalized = {};
+
+  normalizedDays.forEach((day) => {
+    if (!Number.isInteger(day)) return;
+    const key = String(day);
+    const rawTime = source[key] ?? source[day] ?? fallback;
+    normalized[key] = normalizeTimeString(rawTime, fallback);
+  });
+
+  return normalized;
+}
+
+function getScheduleSlotTime(scheduleSlots, dayValue, fallbackTime = "10:00") {
+  const day = Number(dayValue);
+  const key = String(day);
+  const rawTime = scheduleSlots?.[key] ?? scheduleSlots?.[day] ?? fallbackTime;
+  return normalizeTimeString(rawTime, fallbackTime);
+}
+
+function getPrimaryScheduleTime(scheduleDays, scheduleSlots, fallbackTime = "10:00") {
+  const normalizedDays = (Array.isArray(scheduleDays) ? scheduleDays : []).map((day) => Number(day));
+  for (const day of normalizedDays) {
+    if (!Number.isInteger(day)) continue;
+    const key = String(day);
+    const raw = scheduleSlots?.[key] ?? scheduleSlots?.[day];
+    if (typeof raw === "string") {
+      return normalizeTimeString(raw, fallbackTime);
+    }
+  }
+  return normalizeTimeString(fallbackTime, "10:00");
+}
+
+function formatScheduleSummary(scheduleDays, scheduleSlots, ctx) {
+  if (!Array.isArray(scheduleDays) || !scheduleDays.length) return "-";
+  return scheduleDays
+    .map((day) => `${ctx.dayLabel(day)} ${getScheduleSlotTime(scheduleSlots, day)}`)
+    .join(", ");
+}
+
+function renderDayTimeRows(
+  weekDays,
+  selected = [],
+  scheduleSlots = {},
+  inputName = "student-day",
+  allowedDays = [],
+  availableHours = [],
+  defaultHour = 10
+) {
   const allowedSet = new Set(normalizeAllowedDays(allowedDays));
   const selectedSet = new Set((Array.isArray(selected) ? selected : []).map((item) => Number(item)));
+  const resolvedHours = resolveAvailableHours(availableHours);
+  const fallbackTime = hourToTimeString(defaultHour);
 
   return weekDays
     .map((day) => {
-      const isAllowed = !allowedSet.size || allowedSet.has(day.jsDay);
-      const checked = selectedSet.has(day.jsDay) && isAllowed ? "checked" : "";
-      const disabled = isAllowed ? "" : "disabled";
+      const dayValue = Number(day.jsDay);
+      const key = String(dayValue);
+      const isAllowed = !allowedSet.size || allowedSet.has(dayValue);
+      const checked = selectedSet.has(dayValue) && isAllowed;
+      const rowDisabled = !isAllowed ? " is-disabled" : "";
+      const slotTime = getScheduleSlotTime(scheduleSlots, dayValue, fallbackTime);
+      const selectedHour = Number(slotTime.slice(0, 2));
+      const resolvedHour = resolveSelectedHour(selectedHour, resolvedHours);
+      const disabled = !isAllowed || !checked ? "disabled" : "";
+      const checkboxChecked = checked ? "checked" : "";
+      const checkboxDisabled = isAllowed ? "" : "disabled";
+
       return `
-      <label>
-        <input type="checkbox" data-day-input="1" name="${inputName}" value="${day.jsDay}" ${checked} ${disabled} /> ${day.label}
-      </label>
+      <div class="day-time-row${rowDisabled}" data-day-time-row="1" data-day-value="${dayValue}">
+        <label class="day-time-label">
+          <input
+            type="checkbox"
+            data-day-input="1"
+            data-day-checkbox="1"
+            name="${inputName}"
+            value="${dayValue}"
+            ${checkboxChecked}
+            ${checkboxDisabled}
+          />
+          <span>${day.label}</span>
+        </label>
+        <select data-day-hour-select="1" data-day-value="${key}" ${disabled}>${renderHourOptions(resolvedHours, resolvedHour)}</select>
+      </div>
     `;
     })
     .join("");
+}
+
+function syncDayTimeRows(container) {
+  if (!container) return;
+  const rows = container.querySelectorAll("[data-day-time-row='1']");
+  rows.forEach((row) => {
+    const checkbox = row.querySelector("[data-day-checkbox='1']");
+    const select = row.querySelector("[data-day-hour-select='1']");
+    if (!checkbox || !select) return;
+    const selectShouldBeDisabled = checkbox.disabled || !checkbox.checked;
+    select.disabled = selectShouldBeDisabled;
+    row.classList.toggle("is-disabled", selectShouldBeDisabled);
+  });
+}
+
+function bindDayTimeRowEvents(container) {
+  if (!container || container.dataset.dayTimeBound === "1") return;
+  container.dataset.dayTimeBound = "1";
+  container.addEventListener("change", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (!target.matches("[data-day-checkbox='1']")) return;
+    syncDayTimeRows(container);
+  });
+}
+
+function collectScheduleConfig(container) {
+  const rows = container ? [...container.querySelectorAll("[data-day-time-row='1']")] : [];
+  const scheduleDays = [];
+  const scheduleSlots = {};
+  let fallbackTime = "";
+
+  rows.forEach((row) => {
+    const checkbox = row.querySelector("[data-day-checkbox='1']");
+    const select = row.querySelector("[data-day-hour-select='1']");
+    if (!checkbox || !select) return;
+
+    const currentTime = hourToTimeString(select.value);
+    if (!fallbackTime) fallbackTime = currentTime;
+    if (checkbox.disabled || !checkbox.checked) return;
+
+    const dayValue = Number(checkbox.value);
+    if (!Number.isInteger(dayValue)) return;
+    scheduleDays.push(dayValue);
+    scheduleSlots[String(dayValue)] = currentTime;
+  });
+
+  const time = getPrimaryScheduleTime(scheduleDays, scheduleSlots, fallbackTime || "10:00");
+  return { scheduleDays, scheduleSlots, time };
 }
 
 function renderPackageOptions(options, selectedCount, type) {
@@ -584,7 +724,16 @@ function parseParticipantsInput(value) {
 
 function hourToTimeString(hourValue) {
   const hour = Number(hourValue);
+  if (!Number.isInteger(hour) || hour < 0 || hour > 23) return "10:00";
   return `${String(hour).padStart(2, "0")}:00`;
+}
+
+function normalizeTimeString(value, fallback = "10:00") {
+  const raw = String(value || "").trim();
+  if (/^\d{2}:\d{2}$/.test(raw)) {
+    return hourToTimeString(raw.slice(0, 2));
+  }
+  return hourToTimeString(String(fallback).slice(0, 2));
 }
 
 function normalizeDateISO(value, fallback) {

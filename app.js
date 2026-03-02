@@ -1380,6 +1380,10 @@ function normalizeStudent(rawStudent, fallbackOwnerId = null) {
   const ownerId = normalizeOwnerId(rawStudent.ownerId, fallbackOwnerId);
   const createdAt = isValidISODateTime(rawStudent.createdAt) ? rawStudent.createdAt : new Date().toISOString();
   const activationDate = normalizeStudentActivationDate(rawStudent.activationDate, createdAt, getTodayISO());
+  const scheduleDays = sanitizeWeekDays(rawStudent.scheduleDays, [1, 3, 5]);
+  const fallbackTime = sanitizeHourTime(rawStudent.time);
+  const scheduleSlots = sanitizeStudentScheduleSlots(rawStudent.scheduleSlots, scheduleDays, fallbackTime);
+  const primaryTime = getPrimaryStudentScheduleTime(scheduleSlots, scheduleDays, fallbackTime);
 
   const student = {
     id: String(rawStudent.id || createId("student")),
@@ -1387,8 +1391,9 @@ function normalizeStudent(rawStudent, fallbackOwnerId = null) {
     name: String(normalizeLegacyText(rawStudent.name || participants.join(" / "))).trim(),
     trainingType,
     participants,
-    scheduleDays: sanitizeWeekDays(rawStudent.scheduleDays, [1, 3, 5]),
-    time: sanitizeHourTime(rawStudent.time),
+    scheduleDays,
+    scheduleSlots,
+    time: primaryTime,
     totalTrainings: packageCount,
     remainingTrainings: sanitizeRemaining(rawStudent.remainingTrainings, packageCount),
     activePackage,
@@ -1648,6 +1653,64 @@ function sanitizeHourTime(value) {
   const hour = Number(hourRaw);
   if (!Number.isInteger(hour) || hour < 0 || hour > 23) return "10:00";
   return `${String(hour).padStart(2, "0")}:00`;
+}
+
+function sanitizeStudentScheduleSlots(rawSlots, scheduleDays, fallbackTime = "10:00") {
+  const normalizedDays = sanitizeWeekDays(scheduleDays, []);
+  const fallback = sanitizeHourTime(fallbackTime);
+  const source = rawSlots && typeof rawSlots === "object" && !Array.isArray(rawSlots) ? rawSlots : {};
+  const slots = {};
+
+  normalizedDays.forEach((day) => {
+    const key = String(day);
+    const rawValue = source[key] ?? source[day];
+    slots[key] = sanitizeHourTime(rawValue || fallback);
+  });
+
+  return slots;
+}
+
+function getPrimaryStudentScheduleTime(scheduleSlots, scheduleDays, fallbackTime = "10:00") {
+  const normalizedDays = sanitizeWeekDays(scheduleDays, []);
+  const source = scheduleSlots && typeof scheduleSlots === "object" && !Array.isArray(scheduleSlots) ? scheduleSlots : {};
+
+  for (const day of normalizedDays) {
+    const key = String(day);
+    const candidate = source[key] ?? source[day];
+    if (typeof candidate === "string") {
+      return sanitizeHourTime(candidate);
+    }
+  }
+
+  return sanitizeHourTime(fallbackTime);
+}
+
+function getStudentScheduleTimeByDay(student, jsDay) {
+  const day = Number(jsDay);
+  if (Number.isInteger(day)) {
+    const slots = student?.scheduleSlots;
+    if (slots && typeof slots === "object" && !Array.isArray(slots)) {
+      const key = String(day);
+      const slotTime = slots[key] ?? slots[day];
+      if (typeof slotTime === "string") {
+        return sanitizeHourTime(slotTime);
+      }
+    }
+  }
+  return sanitizeHourTime(student?.time);
+}
+
+function getStudentScheduleTimeForDate(student, dateISO) {
+  const jsDay = parseISODate(ensureISODate(dateISO, getTodayISO())).getDay();
+  return getStudentScheduleTimeByDay(student, jsDay);
+}
+
+function isStudentScheduleTimeWithinWorkHours(scheduleSlots, scheduleDays, workSchedule) {
+  const normalizedDays = sanitizeWeekDays(scheduleDays, []);
+  return normalizedDays.every((day) => {
+    const slotTime = scheduleSlots?.[String(day)] ?? scheduleSlots?.[day];
+    return isTimeWithinWorkHours(slotTime, workSchedule);
+  });
 }
 
 function sanitizeRemaining(remaining, total) {
@@ -2380,6 +2443,13 @@ function rebuildStudentPlannedSessions(student, startDateISO = getTodayISO(), op
   const rebuildStartDate = compareISODate(requestedStartDate, activationDate) < 0
     ? activationDate
     : requestedStartDate;
+  const scheduleDays = sanitizeWeekDays(student.scheduleDays, []);
+  const scheduleSlots = sanitizeStudentScheduleSlots(student.scheduleSlots, scheduleDays, student.time);
+  const primaryTime = getPrimaryStudentScheduleTime(scheduleSlots, scheduleDays, student.time);
+
+  student.scheduleDays = scheduleDays;
+  student.scheduleSlots = scheduleSlots;
+  student.time = primaryTime;
   student.activationDate = activationDate;
   const targetCount = Math.max(0, Number(student.remainingTrainings) || 0);
   const coachIncome = getCoachIncomePerSession(student.activePackage, student.trainingType);
@@ -2432,12 +2502,13 @@ function rebuildStudentPlannedSessions(student, startDateISO = getTodayISO(), op
   for (const session of futurePlanned) {
     if (preservedPlanned.length >= remainingFutureSlots) break;
 
-    const key = `${session.date}__${student.time}`;
+    const targetTime = getStudentScheduleTimeForDate(student, session.date);
+    const key = `${session.date}__${targetTime}`;
     if (occupied.has(key)) continue;
 
     preservedPlanned.push({
       ...session,
-      time: student.time,
+      time: targetTime,
       status: plannedStatus,
       coachIncome
     });
@@ -2449,12 +2520,13 @@ function rebuildStudentPlannedSessions(student, startDateISO = getTodayISO(), op
   let guard = 0;
   while (preservedPlanned.length + generated.length < remainingFutureSlots && guard < 3660) {
     const day = parseISODate(cursor).getDay();
-    const key = `${cursor}__${student.time}`;
-    if (student.scheduleDays.includes(day) && !occupied.has(key)) {
+    const targetTime = getStudentScheduleTimeByDay(student, day);
+    const key = `${cursor}__${targetTime}`;
+    if (scheduleDays.includes(day) && !occupied.has(key)) {
       generated.push({
         id: createId("psession"),
         date: cursor,
-        time: student.time,
+        time: targetTime,
         status: plannedStatus,
         coachIncome
       });
@@ -2562,7 +2634,8 @@ function addStudent(payload) {
   const packageCount = Number(payload.packageCount);
   const activationDate = normalizeStudentActivationDate(payload.activationDate, null, getTodayISO());
   const scheduleDays = sanitizeWeekDays(payload.scheduleDays);
-  const time = sanitizeHourTime(payload.time);
+  const scheduleSlots = sanitizeStudentScheduleSlots(payload.scheduleSlots, scheduleDays, payload.time);
+  const time = getPrimaryStudentScheduleTime(scheduleSlots, scheduleDays, payload.time);
 
   if ((trainingType === "personal" || trainingType === "split") && !primaryName) {
     alert("Введите имя ученика.");
@@ -2591,7 +2664,7 @@ function addStudent(payload) {
     return;
   }
 
-  if (!isTimeWithinWorkHours(time, workSchedule)) {
+  if (!isStudentScheduleTimeWithinWorkHours(scheduleSlots, scheduleDays, workSchedule)) {
     alert("Выбрано время вне вашего графика работы.");
     return;
   }
@@ -2619,6 +2692,7 @@ function addStudent(payload) {
     trainingType,
     participants,
     scheduleDays,
+    scheduleSlots,
     time,
     totalTrainings: activePackage.count,
     remainingTrainings: activePackage.count,
@@ -2674,11 +2748,14 @@ function updateStudentSchedule(studentId, scheduleDays) {
     return;
   }
 
-  if (!isTimeWithinWorkHours(student.time, workSchedule)) {
+  const nextScheduleSlots = sanitizeStudentScheduleSlots(student.scheduleSlots, nextDays, student.time);
+  if (!isStudentScheduleTimeWithinWorkHours(nextScheduleSlots, nextDays, workSchedule)) {
     alert("Текущее время карточки вне вашего графика работы. Измените время.");
     return;
   }
 
+  student.scheduleSlots = nextScheduleSlots;
+  student.time = getPrimaryStudentScheduleTime(nextScheduleSlots, nextDays, student.time);
   student.scheduleDays = nextDays;
   rebuildStudentPlannedSessions(student, getTodayISO(), { forceRegenerateFuture: true });
 
@@ -2696,7 +2773,8 @@ function updateStudentCardData(studentId, payload) {
   const secondaryName = String(payload?.secondaryName || "").trim();
   const miniMemberNames = normalizeMiniGroupNames(payload?.memberNames);
   const scheduleDays = sanitizeWeekDays(payload?.scheduleDays);
-  const time = sanitizeHourTime(payload?.time || student.time);
+  const scheduleSlots = sanitizeStudentScheduleSlots(payload?.scheduleSlots, scheduleDays, payload?.time || student.time);
+  const time = getPrimaryStudentScheduleTime(scheduleSlots, scheduleDays, payload?.time || student.time);
   const activationDate = normalizeStudentActivationDate(payload?.activationDate, student.createdAt, student.activationDate);
 
   if ((student.trainingType === "personal" || student.trainingType === "split") && !primaryName) {
@@ -2714,7 +2792,7 @@ function updateStudentCardData(studentId, payload) {
     return;
   }
 
-  if (!isTimeWithinWorkHours(time, workSchedule)) {
+  if (!isStudentScheduleTimeWithinWorkHours(scheduleSlots, scheduleDays, workSchedule)) {
     alert("Выбрано время вне вашего графика работы.");
     return;
   }
@@ -2745,6 +2823,7 @@ function updateStudentCardData(studentId, payload) {
     student.name = primaryName;
   }
 
+  student.scheduleSlots = scheduleSlots;
   student.time = time;
   student.scheduleDays = scheduleDays;
   const activationDateChanged = activationDate !== student.activationDate;
@@ -2984,6 +3063,7 @@ function reschedulePersonalSession(studentId, sessionId) {
 
   const nextDate = getNextAvailableDateForStudent(student, session.date, session.id);
   session.date = nextDate;
+  session.time = getStudentScheduleTimeForDate(student, nextDate);
   sortSessionsByDateTime(student.sessions);
 
   saveState({ dataChanged: true });
@@ -3000,7 +3080,8 @@ function getNextAvailableDateForStudent(student, currentDateISO, sessionId) {
 
   while (guard < 3660) {
     const jsDay = parseISODate(cursor).getDay();
-    const hasConflict = student.sessions.some((item) => item.id !== sessionId && item.date === cursor && item.time === student.time);
+    const candidateTime = getStudentScheduleTimeByDay(student, jsDay);
+    const hasConflict = student.sessions.some((item) => item.id !== sessionId && item.date === cursor && item.time === candidateTime);
 
     if (student.scheduleDays.includes(jsDay) && !hasConflict) {
       return cursor;
