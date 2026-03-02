@@ -441,6 +441,12 @@ body.is-auth-required .app-main {
   margin-bottom: 12px;
 }
 
+.card-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .form-row {
   display: grid;
   gap: 10px;
@@ -448,6 +454,7 @@ body.is-auth-required .app-main {
 }
 
 input:not([type="checkbox"]):not([type="radio"]),
+textarea,
 select {
   width: 100%;
   padding: 9px 11px;
@@ -462,6 +469,7 @@ select {
 }
 
 input:not([type="checkbox"]):not([type="radio"]):focus,
+textarea:focus,
 select:focus {
   outline: none;
   border-color: var(--accent);
@@ -1041,6 +1049,12 @@ input[type="radio"] {
 }
 
 @media (max-width: 720px) {
+  .card-head-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+
   .btn {
     min-height: 42px;
     font-size: 0.9rem;
@@ -1061,6 +1075,7 @@ input[type="radio"] {
   }
 
   input:not([type="checkbox"]):not([type="radio"]),
+  textarea,
   select {
     min-height: 42px;
     font-size: 16px;

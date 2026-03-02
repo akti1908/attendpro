@@ -93,6 +93,24 @@ const weekDays = [
   { jsDay: 6, label: "Сб" },
   { jsDay: 0, label: "Вс" }
 ];
+const IMPORT_DAY_TOKEN_TO_JS_DAY = {
+  ПН: 1,
+  ВТ: 2,
+  СР: 3,
+  ЧТ: 4,
+  ПТ: 5,
+  СБ: 6,
+  ВС: 0
+};
+const IMPORT_JS_DAY_TO_TOKEN = {
+  1: "ПН",
+  2: "ВТ",
+  3: "СР",
+  4: "ЧТ",
+  5: "ПТ",
+  6: "СБ",
+  0: "ВС"
+};
 
 // Явный импорт, чтобы app.js был связан со всеми компонентами.
 void renderSession;
@@ -1172,6 +1190,7 @@ function buildContext() {
       setCalendarDate,
       openDateJournalFromCalendar,
       addStudent,
+      importStudentsFromText,
       addStudentPackage,
       updateStudentSchedule,
       updateStudentCardData,
@@ -1372,6 +1391,38 @@ function normalizeTrainingType(value) {
   return "personal";
 }
 
+function sanitizeStudentDetailText(value) {
+  const text = String(value || "").trim();
+  return text || "";
+}
+
+function normalizeStudentDetails(rawDetails) {
+  const details = rawDetails && typeof rawDetails === "object" && !Array.isArray(rawDetails) ? rawDetails : {};
+  const clientsSource = Array.isArray(details.clients) ? details.clients : [];
+  const clients = clientsSource
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const name = sanitizeStudentDetailText(item.name);
+      const birthDate = sanitizeStudentDetailText(item.birthDate);
+      const phone = sanitizeStudentDetailText(item.phone);
+      if (!name && !birthDate && !phone) return null;
+      return { name, birthDate, phone };
+    })
+    .filter(Boolean);
+
+  return {
+    birthDate: sanitizeStudentDetailText(details.birthDate),
+    firstTrainingDate: sanitizeStudentDetailText(details.firstTrainingDate),
+    deadlineDate: sanitizeStudentDetailText(details.deadlineDate),
+    officialRepresentative: sanitizeStudentDetailText(details.officialRepresentative),
+    phone: sanitizeStudentDetailText(details.phone),
+    oneCStatus: sanitizeStudentDetailText(details.oneCStatus),
+    administrator: sanitizeStudentDetailText(details.administrator),
+    transferredDays: sanitizeStudentDetailText(details.transferredDays),
+    clients
+  };
+}
+
 function normalizeStudent(rawStudent, fallbackOwnerId = null) {
   const trainingType = normalizeTrainingType(rawStudent.trainingType);
   const participants = normalizeParticipants(rawStudent, trainingType);
@@ -1399,6 +1450,7 @@ function normalizeStudent(rawStudent, fallbackOwnerId = null) {
     activePackage,
     packagesHistory: normalizePackagesHistory(rawStudent.packagesHistory, activePackage, trainingType),
     sessions: Array.isArray(rawStudent.sessions) ? rawStudent.sessions.map((session) => normalizeStudentSession(session, activePackage, trainingType)) : [],
+    details: normalizeStudentDetails(rawStudent.details),
     activationDate,
     createdAt
   };
@@ -1713,6 +1765,355 @@ function isStudentScheduleTimeWithinWorkHours(scheduleSlots, scheduleDays, workS
   });
 }
 
+function normalizeImportHeaderName(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replaceAll("ё", "е")
+    .replace(/[^a-zа-я0-9]+/g, "");
+}
+
+function parseImportTime(value, fallback = "10:00") {
+  const raw = String(value || "").trim().replace(",", ".").replaceAll(".", ":");
+  const match = raw.match(/^(\d{1,2})[:](\d{2})$/);
+  if (!match) return sanitizeHourTime(fallback);
+  const hour = Number(match[1]);
+  return sanitizeHourTime(`${String(hour).padStart(2, "0")}:00`);
+}
+
+function parseImportDateToISO(value, fallback = null) {
+  const raw = String(value || "").trim();
+  if (!raw) return fallback;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    return raw;
+  }
+  const dotted = raw.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+  if (dotted) {
+    const day = Number(dotted[1]);
+    const month = Number(dotted[2]);
+    const year = Number(dotted[3]);
+    if (!Number.isInteger(day) || !Number.isInteger(month) || !Number.isInteger(year)) return fallback;
+    if (month < 1 || month > 12 || day < 1 || day > 31) return fallback;
+    return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  }
+  return fallback;
+}
+
+function parseImportTrainingToken(value) {
+  const raw = String(value || "").trim().toUpperCase().replaceAll(" ", "");
+  const numericMatch = raw.match(/(\d{1,3})/);
+  const packageCount = numericMatch ? Math.max(1, Math.floor(Number(numericMatch[1]) || 0)) : 10;
+  if (/МГ|MG/.test(raw)) return { trainingType: "mini_group", packageCount };
+  if (/СП|SP/.test(raw)) return { trainingType: "split", packageCount };
+  if (/ПТ|PT/.test(raw)) return { trainingType: "personal", packageCount };
+  return { trainingType: "personal", packageCount };
+}
+
+function parseImportSchedule(daysText, startTimeText) {
+  const defaultTime = parseImportTime(startTimeText, "10:00");
+  const raw = String(daysText || "").toUpperCase().replaceAll("Ё", "Е");
+  const dayTokenRegex = /(ПН|ВТ|СР|ЧТ|ПТ|СБ|ВС)/g;
+  const tokens = [];
+  let tokenMatch = dayTokenRegex.exec(raw);
+  while (tokenMatch) {
+    tokens.push(tokenMatch[1]);
+    tokenMatch = dayTokenRegex.exec(raw);
+  }
+
+  const uniqueTokens = [];
+  tokens.forEach((token) => {
+    if (!uniqueTokens.includes(token)) {
+      uniqueTokens.push(token);
+    }
+  });
+
+  const scheduleDays = uniqueTokens
+    .map((token) => IMPORT_DAY_TOKEN_TO_JS_DAY[token])
+    .filter((day) => Number.isInteger(day));
+
+  const overrides = {};
+  const overrideBefore = /(\d{1,2}[:.]\d{2})\s*(ПН|ВТ|СР|ЧТ|ПТ|СБ|ВС)/g;
+  let beforeMatch = overrideBefore.exec(raw);
+  while (beforeMatch) {
+    overrides[beforeMatch[2]] = parseImportTime(beforeMatch[1], defaultTime);
+    beforeMatch = overrideBefore.exec(raw);
+  }
+
+  const overrideAfter = /(ПН|ВТ|СР|ЧТ|ПТ|СБ|ВС)\s*(\d{1,2}[:.]\d{2})/g;
+  let afterMatch = overrideAfter.exec(raw);
+  while (afterMatch) {
+    overrides[afterMatch[1]] = parseImportTime(afterMatch[2], defaultTime);
+    afterMatch = overrideAfter.exec(raw);
+  }
+
+  const scheduleSlots = {};
+  scheduleDays.forEach((day) => {
+    const token = IMPORT_JS_DAY_TO_TOKEN[day];
+    scheduleSlots[String(day)] = token && overrides[token] ? overrides[token] : defaultTime;
+  });
+
+  return {
+    scheduleDays,
+    scheduleSlots,
+    time: getPrimaryStudentScheduleTime(scheduleSlots, scheduleDays, defaultTime)
+  };
+}
+
+function buildImportScheduleKey(scheduleDays, scheduleSlots) {
+  const normalizedDays = sanitizeWeekDays(scheduleDays, []);
+  if (!normalizedDays.length) return "";
+  return normalizedDays
+    .map((day) => `${day}:${sanitizeHourTime(scheduleSlots?.[String(day)] || scheduleSlots?.[day] || "10:00")}`)
+    .join("|");
+}
+
+function parseBulkStudentsTable(rawText) {
+  const text = String(rawText || "").trim();
+  if (!text) {
+    return { rows: [], warnings: ["Текст для импорта пустой."] };
+  }
+
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter((line) => line.trim());
+
+  if (!lines.length) {
+    return { rows: [], warnings: ["Не удалось прочитать строки для импорта."] };
+  }
+
+  const splitLine = (line) => {
+    if (line.includes("\t")) return line.split("\t");
+    if (line.includes(";")) return line.split(";");
+    return line.split(/\s{2,}/);
+  };
+
+  const matrix = lines.map((line) => splitLine(line).map((cell) => String(cell || "").trim()));
+  const headerRowIndex = matrix.findIndex((cells) => cells.some((cell) => normalizeImportHeaderName(cell) === "фиоклиента"));
+  const header = headerRowIndex >= 0 ? matrix[headerRowIndex] : null;
+
+  const fallbackIndexes = {
+    start: 1,
+    days: 3,
+    name: 4,
+    birthDate: 5,
+    package: 6,
+    firstTraining: 7,
+    deadline: 8,
+    representative: 9,
+    phone: 10,
+    oneC: 11,
+    admin: 12,
+    transferred: 13
+  };
+
+  const indexes = { ...fallbackIndexes };
+  if (header) {
+    header.forEach((cell, index) => {
+      const key = normalizeImportHeaderName(cell);
+      if (!key) return;
+      if (key === "начало") indexes.start = index;
+      if (key === "днипроведения") indexes.days = index;
+      if (key === "фиоклиента") indexes.name = index;
+      if (key === "датарождения") indexes.birthDate = index;
+      if (key === "колвопт") indexes.package = index;
+      if (key === "перваятренка") indexes.firstTraining = index;
+      if (key === "крайнийсроктренки") indexes.deadline = index;
+      if (key === "официальныйпредставитель") indexes.representative = index;
+      if (key === "номертелефона") indexes.phone = index;
+      if (key === "1с") indexes.oneC = index;
+      if (key === "администратор") indexes.admin = index;
+      if (key === "перенесенныедни") indexes.transferred = index;
+    });
+  }
+
+  const dataRows = matrix.slice(headerRowIndex >= 0 ? headerRowIndex + 1 : 0);
+  const warnings = [];
+  const rows = [];
+
+  dataRows.forEach((cells, index) => {
+    const name = String(cells[indexes.name] || "").trim();
+    if (!name) return;
+    if (/^свободно$/i.test(name)) return;
+
+    const schedule = parseImportSchedule(cells[indexes.days], cells[indexes.start]);
+    if (!schedule.scheduleDays.length) {
+      warnings.push(`Строка ${index + 1}: не удалось определить дни недели для "${name}".`);
+      return;
+    }
+
+    const packageInfo = parseImportTrainingToken(cells[indexes.package]);
+    const activationDate = parseImportDateToISO(cells[indexes.firstTraining], getTodayISO());
+
+    rows.push({
+      sourceIndex: index + 1,
+      sourceName: name,
+      trainingType: packageInfo.trainingType,
+      packageCount: packageInfo.packageCount,
+      activationDate,
+      scheduleDays: schedule.scheduleDays,
+      scheduleSlots: schedule.scheduleSlots,
+      time: schedule.time,
+      scheduleKey: buildImportScheduleKey(schedule.scheduleDays, schedule.scheduleSlots),
+      details: normalizeStudentDetails({
+        birthDate: cells[indexes.birthDate],
+        firstTrainingDate: cells[indexes.firstTraining],
+        deadlineDate: cells[indexes.deadline],
+        officialRepresentative: cells[indexes.representative],
+        phone: cells[indexes.phone],
+        oneCStatus: cells[indexes.oneC],
+        administrator: cells[indexes.admin],
+        transferredDays: cells[indexes.transferred],
+        clients: [{ name, birthDate: cells[indexes.birthDate], phone: cells[indexes.phone] }]
+      })
+    });
+  });
+
+  return { rows, warnings };
+}
+
+function buildStudentsFromImportRows(rows) {
+  const payloads = [];
+  const warnings = [];
+
+  const splitBuckets = new Map();
+  const miniBuckets = new Map();
+
+  rows.forEach((row) => {
+    if (row.trainingType === "split") {
+      const key = [
+        row.activationDate,
+        row.packageCount,
+        row.scheduleKey,
+        row.details?.officialRepresentative || "",
+        row.details?.administrator || ""
+      ].join("__");
+      if (!splitBuckets.has(key)) splitBuckets.set(key, []);
+      splitBuckets.get(key).push(row);
+      return;
+    }
+
+    if (row.trainingType === "mini_group") {
+      const key = [
+        row.activationDate,
+        row.packageCount,
+        row.scheduleKey,
+        row.details?.officialRepresentative || "",
+        row.details?.administrator || ""
+      ].join("__");
+      if (!miniBuckets.has(key)) miniBuckets.set(key, []);
+      miniBuckets.get(key).push(row);
+      return;
+    }
+
+    payloads.push({
+      trainingType: "personal",
+      primaryName: row.sourceName,
+      secondaryName: "",
+      memberNames: [],
+      packageCount: row.packageCount,
+      activationDate: row.activationDate,
+      scheduleDays: row.scheduleDays,
+      scheduleSlots: row.scheduleSlots,
+      time: row.time,
+      details: row.details
+    });
+  });
+
+  splitBuckets.forEach((bucketRows) => {
+    for (let i = 0; i < bucketRows.length; i += 2) {
+      const first = bucketRows[i];
+      const second = bucketRows[i + 1];
+      if (!first || !second) {
+        warnings.push(`Строка ${first?.sourceIndex || "?"}: для сплита не найден второй участник, создана персональная карточка.`);
+        if (first) {
+          payloads.push({
+            trainingType: "personal",
+            primaryName: first.sourceName,
+            secondaryName: "",
+            memberNames: [],
+            packageCount: first.packageCount,
+            activationDate: first.activationDate,
+            scheduleDays: first.scheduleDays,
+            scheduleSlots: first.scheduleSlots,
+            time: first.time,
+            details: first.details
+          });
+        }
+        continue;
+      }
+
+      payloads.push({
+        trainingType: "split",
+        primaryName: first.sourceName,
+        secondaryName: second.sourceName,
+        memberNames: [],
+        packageCount: first.packageCount,
+        activationDate: first.activationDate,
+        scheduleDays: first.scheduleDays,
+        scheduleSlots: first.scheduleSlots,
+        time: first.time,
+        details: normalizeStudentDetails({
+          ...first.details,
+          clients: [
+            { name: first.sourceName, birthDate: first.details.birthDate, phone: first.details.phone },
+            { name: second.sourceName, birthDate: second.details.birthDate, phone: second.details.phone }
+          ]
+        })
+      });
+    }
+  });
+
+  miniBuckets.forEach((bucketRows) => {
+    let index = 0;
+    while (index < bucketRows.length) {
+      const chunk = bucketRows.slice(index, index + MINI_GROUP_MAX_PARTICIPANTS);
+      if (chunk.length >= MINI_GROUP_MIN_PARTICIPANTS) {
+        const first = chunk[0];
+        const memberNames = chunk.map((row) => row.sourceName);
+        payloads.push({
+          trainingType: "mini_group",
+          primaryName: `Мини-группа (${memberNames.length})`,
+          secondaryName: "",
+          memberNames,
+          packageCount: first.packageCount,
+          activationDate: first.activationDate,
+          scheduleDays: first.scheduleDays,
+          scheduleSlots: first.scheduleSlots,
+          time: first.time,
+          details: normalizeStudentDetails({
+            ...first.details,
+            clients: chunk.map((row) => ({
+              name: row.sourceName,
+              birthDate: row.details.birthDate,
+              phone: row.details.phone
+            }))
+          })
+        });
+      } else {
+        chunk.forEach((row) => {
+          warnings.push(`Строка ${row.sourceIndex}: для мини-группы недостаточно участников, создана персональная карточка.`);
+          payloads.push({
+            trainingType: "personal",
+            primaryName: row.sourceName,
+            secondaryName: "",
+            memberNames: [],
+            packageCount: row.packageCount,
+            activationDate: row.activationDate,
+            scheduleDays: row.scheduleDays,
+            scheduleSlots: row.scheduleSlots,
+            time: row.time,
+            details: row.details
+          });
+        });
+      }
+      index += MINI_GROUP_MAX_PARTICIPANTS;
+    }
+  });
+
+  return { payloads, warnings };
+}
+
 function sanitizeRemaining(remaining, total) {
   const value = Number(remaining);
   if (!Number.isFinite(value)) return total;
@@ -1905,13 +2306,19 @@ function getPackageByCount(type, count, category = DEFAULT_TRAINER_CATEGORY) {
 
 function buildPackage(type, count, participantsCount = null) {
   const settings = getUserSettings();
-  const option = getPackageByCount(type, count, settings.trainerCategory);
-  if (!option) return null;
+  const numericCount = Math.max(1, Math.floor(Number(count) || 0));
+  const option = getPackageByCount(type, numericCount, settings.trainerCategory);
+  const fallbackOption = getPackageByCount(type, 1, settings.trainerCategory);
+  const resolvedOption = option || fallbackOption;
+  if (!resolvedOption) return null;
 
   if (type === "split") {
+    const pricePerPerson = option
+      ? Number(resolvedOption.pricePerPerson || 0)
+      : roundMoney(Number(fallbackOption?.pricePerPerson || 0) * numericCount);
     return {
-      count: option.count,
-      pricePerPerson: option.pricePerPerson,
+      count: numericCount,
+      pricePerPerson,
       trainerCategory: settings.trainerCategory,
       coachPercent: settings.coachPercent,
       purchasedAt: new Date().toISOString()
@@ -1923,9 +2330,12 @@ function buildPackage(type, count, participantsCount = null) {
       MINI_GROUP_MIN_PARTICIPANTS,
       Math.min(MINI_GROUP_MAX_PARTICIPANTS, Number(participantsCount || MINI_GROUP_MIN_PARTICIPANTS))
     );
+    const pricePerPerson = option
+      ? Number(resolvedOption.pricePerPerson || 0)
+      : roundMoney(Number(fallbackOption?.pricePerPerson || 0) * numericCount);
     return {
-      count: option.count,
-      pricePerPerson: option.pricePerPerson,
+      count: numericCount,
+      pricePerPerson,
       participantsCount: normalizedCount,
       trainerCategory: settings.trainerCategory,
       coachPercent: settings.coachPercent,
@@ -1933,9 +2343,12 @@ function buildPackage(type, count, participantsCount = null) {
     };
   }
 
+  const totalPrice = option
+    ? Number(resolvedOption.totalPrice || 0)
+    : roundMoney(Number(fallbackOption?.totalPrice || 0) * numericCount);
   return {
-    count: option.count,
-    totalPrice: option.totalPrice,
+    count: numericCount,
+    totalPrice,
     trainerCategory: settings.trainerCategory,
     coachPercent: settings.coachPercent,
     purchasedAt: new Date().toISOString()
@@ -2707,6 +3120,127 @@ function addStudent(payload) {
   state.students.push(student);
   saveState({ dataChanged: true });
   renderApp();
+}
+
+function buildStudentFromPayloadForImport(ownerId, payload, workSchedule) {
+  const trainingType = normalizeTrainingType(payload.trainingType);
+  const primaryName = String(payload.primaryName || "").trim();
+  const secondaryName = String(payload.secondaryName || "").trim();
+  const miniMemberNames = normalizeMiniGroupNames(payload.memberNames);
+  const packageCount = Number(payload.packageCount);
+  const activationDate = normalizeStudentActivationDate(payload.activationDate, null, getTodayISO());
+  const scheduleDays = sanitizeWeekDays(payload.scheduleDays);
+  const scheduleSlots = sanitizeStudentScheduleSlots(payload.scheduleSlots, scheduleDays, payload.time);
+  const time = getPrimaryStudentScheduleTime(scheduleSlots, scheduleDays, payload.time);
+
+  if ((trainingType === "personal" || trainingType === "split") && !primaryName) {
+    return { ok: false, message: "Введите имя ученика." };
+  }
+
+  if (trainingType === "split" && !secondaryName) {
+    return { ok: false, message: "Для сплита нужно указать второго участника." };
+  }
+
+  if (trainingType === "mini_group") {
+    if (miniMemberNames.length < MINI_GROUP_MIN_PARTICIPANTS || miniMemberNames.length > MINI_GROUP_MAX_PARTICIPANTS) {
+      return { ok: false, message: "В мини-группе должно быть от 3 до 5 учеников." };
+    }
+  }
+
+  if (!scheduleDays.length) {
+    return { ok: false, message: "Выберите хотя бы один день недели." };
+  }
+
+  if (!isScheduleWithinWorkDays(scheduleDays, workSchedule)) {
+    return { ok: false, message: "Выбраны дни вне вашего графика работы." };
+  }
+
+  if (!isStudentScheduleTimeWithinWorkHours(scheduleSlots, scheduleDays, workSchedule)) {
+    return { ok: false, message: "Выбрано время вне вашего графика работы." };
+  }
+
+  const activePackage = buildPackage(trainingType, packageCount, miniMemberNames.length);
+  if (!activePackage) {
+    return { ok: false, message: "Выбранный пакет недоступен." };
+  }
+
+  const participants = trainingType === "split"
+    ? [primaryName, secondaryName]
+    : trainingType === "mini_group"
+      ? miniMemberNames
+      : [primaryName];
+  const cardName = trainingType === "split"
+    ? `${primaryName} / ${secondaryName}`
+    : trainingType === "mini_group"
+      ? (primaryName || `Мини-группа (${participants.length})`)
+      : primaryName;
+
+  const student = {
+    id: createId("student"),
+    ownerId,
+    name: cardName,
+    trainingType,
+    participants,
+    scheduleDays,
+    scheduleSlots,
+    time,
+    totalTrainings: activePackage.count,
+    remainingTrainings: activePackage.count,
+    activePackage,
+    packagesHistory: [{ ...activePackage }],
+    sessions: [],
+    details: normalizeStudentDetails(payload.details),
+    activationDate,
+    createdAt: new Date().toISOString()
+  };
+
+  rebuildStudentPlannedSessions(student, activationDate);
+  return { ok: true, student };
+}
+
+function importStudentsFromText(rawText) {
+  const ownerId = getCurrentUserId();
+  if (!ownerId) {
+    return {
+      ok: false,
+      created: 0,
+      failed: 0,
+      warnings: ["Пользователь не найден."],
+      message: "Импорт недоступен."
+    };
+  }
+
+  const workSchedule = getUserSettings(ownerId).workSchedule;
+  const parsedTable = parseBulkStudentsTable(rawText);
+  const grouped = buildStudentsFromImportRows(parsedTable.rows);
+  const warnings = [...parsedTable.warnings, ...grouped.warnings];
+
+  let created = 0;
+  let failed = 0;
+
+  grouped.payloads.forEach((payload) => {
+    const result = buildStudentFromPayloadForImport(ownerId, payload, workSchedule);
+    if (!result.ok) {
+      failed += 1;
+      warnings.push(`${payload.primaryName || "Карточка"}: ${result.message}`);
+      return;
+    }
+
+    state.students.push(result.student);
+    created += 1;
+  });
+
+  if (created > 0) {
+    saveState({ dataChanged: true });
+    renderApp();
+  }
+
+  const ok = created > 0;
+  const message = ok
+    ? `Импорт завершен: добавлено ${created}, пропущено ${failed}.`
+    : "Не удалось добавить карточки из импортированного текста.";
+
+  return { ok, created, failed, warnings, message };
 }
 
 function addStudentPackage(studentId, packageCount) {

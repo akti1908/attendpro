@@ -3,6 +3,7 @@ const MINI_GROUP_MAX_PARTICIPANTS = 5;
 
 // Карточка персональной/сплит/мини-группы тренировки.
 export function renderStudentCard(student, ctx) {
+  const details = student.details || {};
   const activationDate = normalizeDateISO(student.activationDate, ctx.getTodayISO());
   const packageOptions = ctx.packageOptions[student.trainingType] || [];
   const packageSelect = renderPackageOptions(packageOptions, student.totalTrainings, student.trainingType);
@@ -66,6 +67,14 @@ export function renderStudentCard(student, ctx) {
 
       <p class="muted">Формат: ${typeLabel}</p>
       <p class="muted">Участники: ${safeParticipantsLabel}</p>
+      ${details.birthDate ? `<p class="muted">Дата рождения: ${escapeHtml(details.birthDate)}</p>` : ""}
+      ${details.officialRepresentative ? `<p class="muted">Представитель: ${escapeHtml(details.officialRepresentative)}</p>` : ""}
+      ${details.phone ? `<p class="muted">Телефон: ${escapeHtml(details.phone)}</p>` : ""}
+      ${details.firstTrainingDate ? `<p class="muted">Первая трен-ка: ${escapeHtml(details.firstTrainingDate)}</p>` : ""}
+      ${details.deadlineDate ? `<p class="muted">Крайний срок трен-ки: ${escapeHtml(details.deadlineDate)}</p>` : ""}
+      ${details.oneCStatus ? `<p class="muted">1С: ${escapeHtml(details.oneCStatus)}</p>` : ""}
+      ${details.administrator ? `<p class="muted">Администратор: ${escapeHtml(details.administrator)}</p>` : ""}
+      ${details.transferredDays ? `<p class="muted">Перенесенные дни: ${escapeHtml(details.transferredDays)}</p>` : ""}
       <p class="muted">Осталось: ${student.remainingTrainings} / ${student.totalTrainings}</p>
       <p class="muted">Текущий пакет: ${student.totalTrainings} тренировок / ${activePackagePrice} / Категория ${activePackageCategory}</p>
       ${isMiniGroup ? `<p class="muted">Размер мини-группы в пакете: ${miniParticipantsCount} чел.</p>` : ""}
@@ -158,7 +167,10 @@ export function renderStudentsManager(root, ctx) {
     <section class="card">
       <div class="card-head">
         <h2 class="section-title">Карточки</h2>
-        <button id="open-student-modal" class="btn small-btn" type="button">Добавить карточку</button>
+        <div class="card-head-actions">
+          <button id="open-student-modal" class="btn small-btn" type="button">Добавить карточку</button>
+          <button id="open-students-import-modal" class="btn small-btn" type="button">Массовый импорт</button>
+        </div>
       </div>
       <input id="students-search" type="text" placeholder="Поиск по карточкам: имя, участники, формат" />
       <p id="students-search-empty" class="muted mt-8 is-hidden">Ничего не найдено.</p>
@@ -200,6 +212,30 @@ export function renderStudentsManager(root, ctx) {
       </div>
     </div>
 
+    <div id="students-import-modal" class="form-modal is-hidden" role="dialog" aria-modal="true" aria-labelledby="students-import-title">
+      <div class="form-modal-card">
+        <div class="form-modal-head">
+          <h3 id="students-import-title">Массовый импорт карточек</h3>
+          <button class="btn small-btn" type="button" data-action="close-students-import-modal">Закрыть</button>
+        </div>
+
+        <form id="students-import-form">
+          <textarea
+            id="students-import-text"
+            rows="14"
+            placeholder="Вставьте таблицу из Excel (с заголовками). Формат: колонки через TAB, строки через Enter."
+          ></textarea>
+          <p class="muted mt-8">
+            Поддерживается: ПТ (персональная), СП (сплит), МГ (мини-группа). Строки со значением &quot;СВОБОДНО&quot; пропускаются.
+          </p>
+          <div class="session-actions">
+            <button class="btn btn-primary" type="submit">Импортировать</button>
+            <button class="btn" type="button" data-action="close-students-import-modal">Отмена</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
     <div id="student-view-modal" class="form-modal is-hidden" role="dialog" aria-modal="true" aria-labelledby="student-view-title">
       <div class="form-modal-card student-view-modal-card">
         <div class="form-modal-head">
@@ -218,11 +254,15 @@ export function renderStudentsManager(root, ctx) {
   const miniMembers = root.querySelector("#mini-members");
   const activationDateInput = root.querySelector("#activation-date");
   const studentCreateModal = root.querySelector("#student-create-modal");
+  const studentsImportModal = root.querySelector("#students-import-modal");
   const studentViewModal = root.querySelector("#student-view-modal");
   const studentViewContent = root.querySelector("#student-view-content");
   const openStudentModalButton = root.querySelector("#open-student-modal");
+  const openStudentsImportModalButton = root.querySelector("#open-students-import-modal");
   const studentForm = root.querySelector("#student-form");
   const studentDaysContainer = root.querySelector("#student-days");
+  const studentsImportForm = root.querySelector("#students-import-form");
+  const studentsImportText = root.querySelector("#students-import-text");
 
   const syncFormByType = () => {
     const type = String(typeSelect.value || "personal");
@@ -270,6 +310,7 @@ export function renderStudentsManager(root, ctx) {
   };
 
   const openStudentModal = () => {
+    studentsImportModal?.classList.add("is-hidden");
     studentViewModal?.classList.add("is-hidden");
     studentCreateModal?.classList.remove("is-hidden");
     document.body.classList.add("modal-open");
@@ -289,6 +330,51 @@ export function renderStudentsManager(root, ctx) {
     if (event.target === studentCreateModal) closeStudentModal();
   });
 
+  const closeStudentsImportModal = () => {
+    studentsImportModal?.classList.add("is-hidden");
+    document.body.classList.remove("modal-open");
+  };
+
+  const openStudentsImportModal = () => {
+    studentCreateModal?.classList.add("is-hidden");
+    studentViewModal?.classList.add("is-hidden");
+    studentsImportModal?.classList.remove("is-hidden");
+    document.body.classList.add("modal-open");
+    studentsImportText?.focus();
+  };
+
+  openStudentsImportModalButton?.addEventListener("click", openStudentsImportModal);
+  root.querySelectorAll("[data-action='close-students-import-modal']").forEach((button) => {
+    button.addEventListener("click", closeStudentsImportModal);
+  });
+
+  studentsImportModal?.addEventListener("click", (event) => {
+    if (event.target === studentsImportModal) closeStudentsImportModal();
+  });
+
+  studentsImportForm?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const rawText = String(studentsImportText?.value || "").trim();
+    if (!rawText) {
+      alert("Вставьте таблицу для импорта.");
+      return;
+    }
+
+    const result = ctx.actions.importStudentsFromText(rawText);
+    const warnings = Array.isArray(result?.warnings) ? result.warnings : [];
+    const warningText = warnings.length
+      ? `\n\nПредупреждения:\n- ${warnings.slice(0, 8).join("\n- ")}${warnings.length > 8 ? `\n... и еще ${warnings.length - 8}` : ""}`
+      : "";
+    alert(`${result?.message || "Импорт завершен."}${warningText}`);
+
+    if (result?.ok) {
+      closeStudentsImportModal();
+      if (studentsImportText) {
+        studentsImportText.value = "";
+      }
+    }
+  });
+
   const closeStudentViewModal = () => {
     studentViewModal?.classList.add("is-hidden");
     if (studentViewContent) {
@@ -301,6 +387,7 @@ export function renderStudentsManager(root, ctx) {
     const student = ctx.state.students.find((item) => item.id === studentId);
     if (!student || !studentViewContent) return;
 
+    studentsImportModal?.classList.add("is-hidden");
     studentCreateModal?.classList.add("is-hidden");
     studentViewContent.innerHTML = renderStudentCard(student, ctx);
     bindStudentCardActions(studentViewContent, ctx);
