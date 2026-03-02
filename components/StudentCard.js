@@ -191,9 +191,15 @@ export function renderStudentsManager(root, ctx) {
               <option value="split">Сплит (2 человека)</option>
               <option value="mini_group">Мини-группа (3-5 человек)</option>
             </select>
-            <input id="primary-name" required name="primaryName" placeholder="Имя ученика" />
-            <input id="secondary-name" name="secondaryName" placeholder="Имя второго участника (для сплита)" disabled />
-            <input id="mini-members" name="miniMembers" placeholder="Участники мини-группы через запятую (3-5)" disabled />
+            <div id="primary-name-row">
+              <input id="primary-name" required name="primaryName" placeholder="Имя ученика" />
+            </div>
+            <div id="secondary-name-row" class="is-hidden">
+              <input id="secondary-name" name="secondaryName" placeholder="Имя второго участника (для сплита)" disabled />
+            </div>
+            <div id="mini-members-row" class="is-hidden">
+              <input id="mini-members" name="miniMembers" placeholder="Участники мини-группы через запятую (3-5)" disabled />
+            </div>
             <select id="package-select" name="packageCount" required>
               ${renderPackageOptions(ctx.packageOptions.personal, 10, "personal")}
             </select>
@@ -250,8 +256,11 @@ export function renderStudentsManager(root, ctx) {
   const typeSelect = root.querySelector("#training-type");
   const packageSelect = root.querySelector("#package-select");
   const primaryName = root.querySelector("#primary-name");
+  const primaryNameRow = root.querySelector("#primary-name-row");
   const secondName = root.querySelector("#secondary-name");
+  const secondNameRow = root.querySelector("#secondary-name-row");
   const miniMembers = root.querySelector("#mini-members");
+  const miniMembersRow = root.querySelector("#mini-members-row");
   const activationDateInput = root.querySelector("#activation-date");
   const studentCreateModal = root.querySelector("#student-create-modal");
   const studentsImportModal = root.querySelector("#students-import-modal");
@@ -266,23 +275,29 @@ export function renderStudentsManager(root, ctx) {
 
   const syncFormByType = () => {
     const type = String(typeSelect.value || "personal");
+    const isSplit = type === "split";
+    const isMiniGroup = type === "mini_group";
 
-    secondName.disabled = type !== "split";
-    secondName.required = type === "split";
-    if (type !== "split") secondName.value = "";
+    primaryNameRow?.classList.toggle("is-hidden", isMiniGroup);
+    secondNameRow?.classList.toggle("is-hidden", !isSplit);
+    miniMembersRow?.classList.toggle("is-hidden", !isMiniGroup);
 
-    miniMembers.disabled = type !== "mini_group";
-    miniMembers.required = type === "mini_group";
-    if (type !== "mini_group") miniMembers.value = "";
+    primaryName.disabled = isMiniGroup;
+    primaryName.required = !isMiniGroup;
 
-    if (type === "mini_group") {
-      primaryName.required = false;
+    secondName.disabled = !isSplit;
+    secondName.required = isSplit;
+    if (!isSplit) secondName.value = "";
+
+    miniMembers.disabled = !isMiniGroup;
+    miniMembers.required = isMiniGroup;
+    if (!isMiniGroup) miniMembers.value = "";
+
+    if (isMiniGroup) {
       primaryName.placeholder = "Название мини-группы (необязательно)";
-    } else if (type === "split") {
-      primaryName.required = true;
+    } else if (isSplit) {
       primaryName.placeholder = "Имя первого участника";
     } else {
-      primaryName.required = true;
       primaryName.placeholder = "Имя ученика";
     }
 
