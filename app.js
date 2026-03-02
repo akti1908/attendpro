@@ -2383,40 +2383,54 @@ function rebuildStudentPlannedSessions(student, startDateISO = getTodayISO(), op
   student.activationDate = activationDate;
   const targetCount = Math.max(0, Number(student.remainingTrainings) || 0);
   const coachIncome = getCoachIncomePerSession(student.activePackage, student.trainingType);
+  const plannedStatus = normalizePersonalStatus();
   const allSessions = Array.isArray(student.sessions) ? student.sessions : [];
 
-  const reserved = [];
+  const finalSessions = [];
+  const pastPlanned = [];
   const futurePlanned = [];
 
   allSessions.forEach((session) => {
     if (!session || typeof session !== "object") return;
+
+    const sessionDate = ensureISODate(session.date, activationDate);
+    const normalizedSession = {
+      ...session,
+      date: sessionDate
+    };
+
     if (isFinalPersonalStatus(session.status)) {
-      reserved.push(session);
+      finalSessions.push(normalizedSession);
       return;
     }
 
-    if (compareISODate(session.date, activationDate) < 0) {
+    if (compareISODate(sessionDate, activationDate) < 0) {
       return;
     }
 
-    const isPast = compareISODate(session.date, rebuildStartDate) < 0;
+    const isPast = compareISODate(sessionDate, rebuildStartDate) < 0;
     if (isPast) {
-      reserved.push(session);
+      pastPlanned.push(normalizedSession);
       return;
     }
 
-    if (!forceRegenerateFuture && session.status === "запланировано") {
-      futurePlanned.push(session);
+    if (!forceRegenerateFuture && normalizePersonalStatus(session.status) === plannedStatus) {
+      futurePlanned.push(normalizedSession);
     }
   });
 
+  sortSessionsByDateTime(pastPlanned);
   sortSessionsByDateTime(futurePlanned);
 
+  // Past unresolved sessions also consume package balance.
+  const preservedPastPlanned = pastPlanned.slice(0, targetCount);
+  const remainingFutureSlots = Math.max(0, targetCount - preservedPastPlanned.length);
+
   const preservedPlanned = [];
-  const occupied = new Set(reserved.map((session) => `${session.date}__${session.time}`));
+  const occupied = new Set([...finalSessions, ...preservedPastPlanned].map((session) => `${session.date}__${session.time}`));
 
   for (const session of futurePlanned) {
-    if (preservedPlanned.length >= targetCount) break;
+    if (preservedPlanned.length >= remainingFutureSlots) break;
 
     const key = `${session.date}__${student.time}`;
     if (occupied.has(key)) continue;
@@ -2424,7 +2438,7 @@ function rebuildStudentPlannedSessions(student, startDateISO = getTodayISO(), op
     preservedPlanned.push({
       ...session,
       time: student.time,
-      status: "запланировано",
+      status: plannedStatus,
       coachIncome
     });
     occupied.add(key);
@@ -2433,7 +2447,7 @@ function rebuildStudentPlannedSessions(student, startDateISO = getTodayISO(), op
   const generated = [];
   let cursor = rebuildStartDate;
   let guard = 0;
-  while (preservedPlanned.length + generated.length < targetCount && guard < 3660) {
+  while (preservedPlanned.length + generated.length < remainingFutureSlots && guard < 3660) {
     const day = parseISODate(cursor).getDay();
     const key = `${cursor}__${student.time}`;
     if (student.scheduleDays.includes(day) && !occupied.has(key)) {
@@ -2441,7 +2455,7 @@ function rebuildStudentPlannedSessions(student, startDateISO = getTodayISO(), op
         id: createId("psession"),
         date: cursor,
         time: student.time,
-        status: "запланировано",
+        status: plannedStatus,
         coachIncome
       });
       occupied.add(key);
@@ -2450,7 +2464,7 @@ function rebuildStudentPlannedSessions(student, startDateISO = getTodayISO(), op
     guard += 1;
   }
 
-  student.sessions = [...reserved, ...preservedPlanned, ...generated];
+  student.sessions = [...finalSessions, ...preservedPastPlanned, ...preservedPlanned, ...generated];
   sortSessionsByDateTime(student.sessions);
 }
 
