@@ -1,11 +1,10 @@
-const CACHE_NAME = "attendpro-cache-v6";
+const CACHE_NAME = "attendpro-cache-v7";
 
 const APP_SHELL = [
   "./",
   "./index.html",
   "./style.css",
   "./app.js",
-  "./config.js",
   "./manifest.webmanifest",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
@@ -56,6 +55,11 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
+  if (isConfigRequest(url)) {
+    event.respondWith(configNetworkFirst(request));
+    return;
+  }
+
   if (shouldUseNetworkFirst(request, url)) {
     event.respondWith(networkFirst(request));
     return;
@@ -71,6 +75,10 @@ function shouldUseNetworkFirst(request, url) {
   return [".js", ".css", ".html", ".webmanifest"].some((ext) => url.pathname.endsWith(ext));
 }
 
+function isConfigRequest(url) {
+  return url.pathname.endsWith("/config.js");
+}
+
 async function networkFirst(request) {
   try {
     const response = await fetch(request);
@@ -83,6 +91,25 @@ async function networkFirst(request) {
     const cached = await caches.match(request, { ignoreSearch: true });
     if (cached) return cached;
     return caches.match("./index.html");
+  }
+}
+
+async function configNetworkFirst(request) {
+  try {
+    const response = await fetch(request, { cache: "no-store" });
+    if (response && response.ok) {
+      const cache = await caches.open(CACHE_NAME);
+      cache.put(request, response.clone());
+    }
+    return response;
+  } catch (_error) {
+    const cached = await caches.match(request, { ignoreSearch: true });
+    if (cached) return cached;
+
+    return new Response(
+      "window.ATTENDPRO_CLOUD = window.ATTENDPRO_CLOUD || {}; window.ATTENDPRO_TELEGRAM = window.ATTENDPRO_TELEGRAM || {};",
+      { headers: { "Content-Type": "application/javascript; charset=utf-8" } }
+    );
   }
 }
 

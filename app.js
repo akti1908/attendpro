@@ -432,52 +432,60 @@ async function syncCloudNow() {
 }
 
 async function sendTodayReportToTelegram(targetDateISO = null, options = {}) {
-  if (!isAuthenticated()) {
-    return { ok: false, message: "Авторизуйтесь для отправки отчета." };
-  }
+  try {
+    if (!isAuthenticated()) {
+      return { ok: false, message: "Авторизуйтесь для отправки отчета." };
+    }
 
-  const telegramConfig = getTelegramReportConfig();
-  const backendTransport = getTelegramBackendTransportState(telegramConfig);
-  const hasServerEndpoint = backendTransport.canUseBackend;
-  const hasDirectTelegram = Boolean(telegramConfig.botToken && telegramConfig.chatId);
-  if (!hasServerEndpoint && !hasDirectTelegram) {
-    const guidance = backendTransport.reason || "Telegram не настроен. Укажите ATTENDPRO_TELEGRAM.apiBaseUrl или botToken/chatId.";
+    const telegramConfig = getTelegramReportConfig();
+    const backendTransport = getTelegramBackendTransportState(telegramConfig);
+    const hasServerEndpoint = backendTransport.canUseBackend;
+    const hasDirectTelegram = Boolean(telegramConfig.botToken && telegramConfig.chatId);
+    if (!hasServerEndpoint && !hasDirectTelegram) {
+      const guidance = backendTransport.reason || "Telegram не настроен. Укажите ATTENDPRO_TELEGRAM.apiBaseUrl или botToken/chatId.";
+      return {
+        ok: false,
+        message: guidance
+      };
+    }
+
+    const reportDateISO = ensureISODate(targetDateISO, getTodayISO());
+    const text = buildTodayAttendanceReportText(reportDateISO);
+    const idempotencyKey = String(options?.idempotencyKey || "").trim();
+
+    let lastErrorMessage = backendTransport.reason || "";
+
+    if (hasServerEndpoint) {
+      const serverResult = await sendTelegramReportViaBackend({
+        telegramConfig,
+        reportDateISO,
+        text,
+        idempotencyKey
+      });
+      if (serverResult.ok) return serverResult;
+      lastErrorMessage = serverResult.message || lastErrorMessage;
+    }
+
+    if (hasDirectTelegram) {
+      const directResult = await sendTelegramReportDirect({
+        telegramConfig,
+        text
+      });
+      if (directResult.ok) return directResult;
+      lastErrorMessage = directResult.message || lastErrorMessage;
+    }
+
     return {
       ok: false,
-      message: guidance
+      message: lastErrorMessage || "Не удалось отправить отчет."
+    };
+  } catch (error) {
+    console.error("sendTodayReportToTelegram error:", error);
+    return {
+      ok: false,
+      message: "Внутренняя ошибка при отправке отчета."
     };
   }
-
-  const reportDateISO = ensureISODate(targetDateISO, getTodayISO());
-  const text = buildTodayAttendanceReportText(reportDateISO);
-  const idempotencyKey = String(options?.idempotencyKey || "").trim();
-
-  let lastErrorMessage = backendTransport.reason || "";
-
-  if (hasServerEndpoint) {
-    const serverResult = await sendTelegramReportViaBackend({
-      telegramConfig,
-      reportDateISO,
-      text,
-      idempotencyKey
-    });
-    if (serverResult.ok) return serverResult;
-    lastErrorMessage = serverResult.message || lastErrorMessage;
-  }
-
-  if (hasDirectTelegram) {
-    const directResult = await sendTelegramReportDirect({
-      telegramConfig,
-      text
-    });
-    if (directResult.ok) return directResult;
-    lastErrorMessage = directResult.message || lastErrorMessage;
-  }
-
-  return {
-    ok: false,
-    message: lastErrorMessage || "Не удалось отправить отчет."
-  };
 }
 
 async function sendTelegramReportViaBackend(payload) {

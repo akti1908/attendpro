@@ -149,15 +149,24 @@ export function renderHome(root, ctx) {
       sendTodayReportMessage.classList.remove("auth-error", "auth-success");
     }
 
-    const result = await ctx.actions.sendTodayReportToTelegram(selectedDate);
+    try {
+      const result = await ctx.actions.sendTodayReportToTelegram(selectedDate);
 
-    if (sendTodayReportMessage) {
-      sendTodayReportMessage.textContent = result?.message || "Не удалось отправить отчет.";
-      sendTodayReportMessage.classList.toggle("auth-success", Boolean(result?.ok));
-      sendTodayReportMessage.classList.toggle("auth-error", !result?.ok);
+      if (sendTodayReportMessage) {
+        sendTodayReportMessage.textContent = result?.message || "Не удалось отправить отчет.";
+        sendTodayReportMessage.classList.toggle("auth-success", Boolean(result?.ok));
+        sendTodayReportMessage.classList.toggle("auth-error", !result?.ok);
+      }
+    } catch (error) {
+      console.error("Send report button handler error:", error);
+      if (sendTodayReportMessage) {
+        sendTodayReportMessage.textContent = "Не удалось отправить отчет из-за внутренней ошибки.";
+        sendTodayReportMessage.classList.remove("auth-success");
+        sendTodayReportMessage.classList.add("auth-error");
+      }
+    } finally {
+      sendTodayReportButton.disabled = false;
     }
-
-    sendTodayReportButton.disabled = false;
   });
 }
 
