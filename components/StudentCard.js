@@ -16,6 +16,15 @@ export function renderStudentCard(student, ctx) {
   );
   const scheduleSlots = normalizeScheduleSlots(student.scheduleSlots, student.scheduleDays, student.time);
   const scheduleSummary = formatScheduleSummary(student.scheduleDays, scheduleSlots, ctx);
+  const packageActivationDate = normalizeDateISO(ctx.state?.selectedDate, ctx.getTodayISO());
+  const packageDayInputs = renderDayTimeRows(
+    ctx.weekDays,
+    student.scheduleDays,
+    scheduleSlots,
+    `student-package-day-${student.id}`,
+    allowedWorkDays,
+    availableHours
+  );
 
   const upcomingSessions = student.sessions
     .slice()
@@ -82,10 +91,24 @@ export function renderStudentCard(student, ctx) {
       <p class="muted">Расписание: ${scheduleSummary}</p>
 
       <div class="session-actions package-controls">
-        <select data-package-select-for="${student.id}">
-          ${packageSelect}
-        </select>
-        <button class="btn small-btn" type="button" data-action="apply-package" data-student-id="${student.id}">Добавить новый пакет</button>
+        <button class="btn small-btn" type="button" data-action="toggle-student-package" data-student-id="${student.id}">Добавить новый пакет</button>
+      </div>
+
+      <div class="card-edit-panel is-hidden" data-student-package-panel="${student.id}">
+        <div class="form-row">
+          <input data-student-package-field="activation-date" type="date" value="${packageActivationDate}" />
+          <select data-student-package-field="count">
+            ${packageSelect}
+          </select>
+        </div>
+        <p class="muted mt-8">Дни и часы нового пакета</p>
+        <div class="day-time-grid mt-8" data-day-time-root="1" data-package-days-container="${student.id}">
+          ${packageDayInputs}
+        </div>
+        <div class="session-actions">
+          <button class="btn small-btn" type="button" data-action="save-student-package" data-student-id="${student.id}">Применить пакет</button>
+          <button class="btn small-btn" type="button" data-action="cancel-student-package" data-student-id="${student.id}">Отмена</button>
+        </div>
       </div>
 
       <div class="card-edit-panel is-hidden" data-student-edit-panel="${student.id}">
@@ -553,13 +576,57 @@ function bindStudentCardActions(container, ctx) {
     });
   });
 
-  container.querySelectorAll("[data-action='apply-package']").forEach((button) => {
+  container.querySelectorAll("[data-action='toggle-student-package']").forEach((button) => {
     button.addEventListener("click", () => {
       const card = button.closest("[data-student-card]");
-      const select = card?.querySelector(`[data-package-select-for='${button.dataset.studentId}']`);
-      if (!select) return;
-      ctx.actions.addStudentPackage(button.dataset.studentId, Number(select.value));
-      document.body.classList.remove("modal-open");
+      if (!card) return;
+      const panel = card.querySelector("[data-student-package-panel]");
+      if (!panel) return;
+
+      const willOpen = panel.classList.contains("is-hidden");
+      setStudentCardPackageMode(card, willOpen);
+      if (!willOpen) {
+        resetStudentPackagePanel(card);
+        return;
+      }
+      bindDayTimeRowEvents(panel);
+      syncDayTimeRows(panel);
+    });
+  });
+
+  container.querySelectorAll("[data-action='cancel-student-package']").forEach((button) => {
+    button.addEventListener("click", () => {
+      const card = button.closest("[data-student-card]");
+      if (!card) return;
+      resetStudentPackagePanel(card);
+      setStudentCardPackageMode(card, false);
+    });
+  });
+
+  container.querySelectorAll("[data-action='save-student-package']").forEach((button) => {
+    button.addEventListener("click", () => {
+      const card = button.closest("[data-student-card]");
+      const panel = card?.querySelector("[data-student-package-panel]");
+      if (!card || !panel) return;
+
+      const activationDate = String(panel.querySelector('[data-student-package-field="activation-date"]')?.value || "").trim();
+      const packageCount = Number(panel.querySelector('[data-student-package-field="count"]')?.value || 0);
+      const scheduleContainer = panel.querySelector("[data-package-days-container]");
+      const scheduleConfig = collectScheduleConfig(scheduleContainer);
+      const { scheduleDays, scheduleSlots, time } = scheduleConfig;
+
+      if (!scheduleDays.length) {
+        alert("Выберите хотя бы один день недели.");
+        return;
+      }
+
+      ctx.actions.addStudentPackage(button.dataset.studentId, {
+        packageCount,
+        activationDate,
+        scheduleDays,
+        scheduleSlots,
+        time
+      });
     });
   });
 
@@ -583,8 +650,31 @@ function setStudentCardEditMode(card, isOpen) {
   toggle.textContent = isOpen ? "Скрыть" : "Редактировать";
 }
 
+function setStudentCardPackageMode(card, isOpen) {
+  const panel = card.querySelector("[data-student-package-panel]");
+  const toggle = card.querySelector("[data-action='toggle-student-package']");
+  if (!panel || !toggle) return;
+
+  panel.classList.toggle("is-hidden", !isOpen);
+  toggle.textContent = isOpen ? "Скрыть пакет" : "Добавить новый пакет";
+}
+
 function resetStudentEditPanel(card) {
   const panel = card.querySelector("[data-student-edit-panel]");
+  if (!panel) return;
+
+  panel.querySelectorAll("input, select").forEach((control) => {
+    if (control.type === "checkbox" || control.type === "radio") {
+      control.checked = control.defaultChecked;
+      return;
+    }
+    control.value = control.defaultValue;
+  });
+  syncDayTimeRows(panel);
+}
+
+function resetStudentPackagePanel(card) {
+  const panel = card.querySelector("[data-student-package-panel]");
   if (!panel) return;
 
   panel.querySelectorAll("input, select").forEach((control) => {

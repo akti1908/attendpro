@@ -3251,24 +3251,66 @@ function importStudentsFromText(rawText) {
   return { ok, created, failed, warnings, message };
 }
 
-function addStudentPackage(studentId, packageCount) {
+function addStudentPackage(studentId, payload) {
   const ownerId = getCurrentUserId();
   const student = state.students.find((item) => item.id === studentId && item.ownerId === ownerId);
   if (!student) return;
+  const workSchedule = getUserSettings(ownerId).workSchedule;
+
+  const isPayloadObject = payload && typeof payload === "object" && !Array.isArray(payload);
+  const packageCount = Number(isPayloadObject ? payload.packageCount : payload);
+  const activationDate = normalizeStudentActivationDate(
+    isPayloadObject ? payload.activationDate : getTodayISO(),
+    student.createdAt,
+    getTodayISO()
+  );
+  const nextScheduleDays = sanitizeWeekDays(
+    isPayloadObject ? payload.scheduleDays : student.scheduleDays,
+    student.scheduleDays
+  );
+  const nextScheduleSlots = sanitizeStudentScheduleSlots(
+    isPayloadObject ? payload.scheduleSlots : student.scheduleSlots,
+    nextScheduleDays,
+    isPayloadObject ? payload.time : student.time
+  );
+  const nextTime = getPrimaryStudentScheduleTime(
+    nextScheduleSlots,
+    nextScheduleDays,
+    isPayloadObject ? payload.time : student.time
+  );
+
+  if (!nextScheduleDays.length) {
+    alert("Выберите хотя бы один день недели.");
+    return;
+  }
+
+  if (!isScheduleWithinWorkDays(nextScheduleDays, workSchedule)) {
+    alert("Выбраны дни вне вашего графика работы.");
+    return;
+  }
+
+  if (!isStudentScheduleTimeWithinWorkHours(nextScheduleSlots, nextScheduleDays, workSchedule)) {
+    alert("Выбрано время вне вашего графика работы.");
+    return;
+  }
 
   const participantsCount = student.trainingType === "mini_group" ? student.participants.length : null;
-  const newPackage = buildPackage(student.trainingType, Number(packageCount), participantsCount);
+  const newPackage = buildPackage(student.trainingType, packageCount, participantsCount);
   if (!newPackage) {
     alert("Пакет не найден.");
     return;
   }
 
+  student.activationDate = activationDate;
+  student.scheduleDays = nextScheduleDays;
+  student.scheduleSlots = nextScheduleSlots;
+  student.time = nextTime;
   student.activePackage = newPackage;
   student.totalTrainings = newPackage.count;
   student.remainingTrainings = newPackage.count;
   student.packagesHistory = student.packagesHistory || [];
   student.packagesHistory.push({ ...newPackage });
-  rebuildStudentPlannedSessions(student, getTodayISO(), { forceRegenerateFuture: true });
+  rebuildStudentPlannedSessions(student, activationDate, { forceRegenerateFuture: true });
 
   saveState({ dataChanged: true });
   renderApp();
