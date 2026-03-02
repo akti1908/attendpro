@@ -1126,6 +1126,35 @@ function renderApp() {
   markActiveNavButton();
 }
 
+function captureHomeScrollState() {
+  if (!root || state.view !== "home") return null;
+  const dayList = root.querySelector("#day-list");
+  return {
+    dayListScrollTop: dayList ? Number(dayList.scrollTop || 0) : null,
+    windowScrollY: Number(window.scrollY || 0)
+  };
+}
+
+function restoreHomeScrollState(snapshot) {
+  if (!snapshot || !root || state.view !== "home") return;
+
+  const apply = () => {
+    const dayList = root.querySelector("#day-list");
+    if (dayList && Number.isFinite(snapshot.dayListScrollTop)) {
+      dayList.scrollTop = snapshot.dayListScrollTop;
+    }
+    if (Number.isFinite(snapshot.windowScrollY)) {
+      window.scrollTo(0, snapshot.windowScrollY);
+    }
+  };
+
+  if (typeof requestAnimationFrame === "function") {
+    requestAnimationFrame(apply);
+    return;
+  }
+  apply();
+}
+
 function markActiveNavButton() {
   const viewToButtonId = {
     home: "go-today",
@@ -3694,10 +3723,12 @@ function setGroupAttendance(groupId, sessionId, studentId, status) {
     return;
   }
 
+  const scrollState = captureHomeScrollState();
   session.attendance = session.attendance || {};
   session.attendance[studentId] = status;
   saveState({ dataChanged: true });
   renderApp();
+  restoreHomeScrollState(scrollState);
 }
 
 function setSalaryMonth(monthISO) {
@@ -4160,4 +4191,3 @@ function downloadFile(fileName, content, mimeType) {
 
   URL.revokeObjectURL(url);
 }
-
