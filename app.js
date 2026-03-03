@@ -1196,6 +1196,7 @@ function buildContext() {
   const workSchedule = normalizeWorkSchedule(userSettings.workSchedule);
   const workHours = getWorkHoursFromSchedule(workSchedule);
   const packageOptions = getPackageOptionsByCategory(userSettings.trainerCategory);
+  const sessionsIndex = buildSessionsIndex(scopedState.students, scopedState.groups);
   return {
     state: scopedState,
     currentUser: getCurrentUser(),
@@ -1214,8 +1215,8 @@ function buildContext() {
     getTodayISO,
     formatDate,
     dayLabel,
-    getSessionsForDate,
-    getSessionsByDate,
+    getSessionsForDate: (dateISO) => getSessionsForDate(dateISO, sessionsIndex),
+    getSessionsByDate: (dateISO) => getSessionsByDate(dateISO, sessionsIndex),
     getStatistics,
     getSalaryReport,
     actions: {
@@ -3796,44 +3797,15 @@ function exportSalaryMonthCSV(monthISO) {
   );
 }
 
-function getSessionsForDate(dateISO) {
-  const rows = [];
-  const students = getStudentsForUser();
-  const groups = getGroupsForUser();
-
-  students.forEach((student) => {
-    student.sessions.forEach((session) => {
-      if (session.date !== dateISO) return;
-      rows.push({
-        type: "personal",
-        studentId: student.id,
-        studentName: student.name,
-        trainingType: student.trainingType,
-        participants: Array.isArray(student.participants) ? student.participants : [],
-        data: session
-      });
-    });
-  });
-
-  groups.forEach((group) => {
-    group.sessions.forEach((session) => {
-      if (session.date !== dateISO) return;
-      rows.push({
-        type: "group",
-        groupId: group.id,
-        groupName: group.name,
-        students: group.students,
-        data: session
-      });
-    });
-  });
-
-  rows.sort((a, b) => String(a.data.time).localeCompare(String(b.data.time)));
-  return rows;
+function getSessionsForDate(dateISO, sessionsIndex = null) {
+  const index = sessionsIndex || buildSessionsIndex(getStudentsForUser(), getGroupsForUser());
+  const rows = index.get(dateISO);
+  if (!rows) return [];
+  return rows.slice();
 }
 
-function getSessionsByDate(dateISO) {
-  return getSessionsForDate(dateISO).map((item) => {
+function getSessionsByDate(dateISO, sessionsIndex = null) {
+  return getSessionsForDate(dateISO, sessionsIndex).map((item) => {
     if (item.type === "personal") {
       const labelPrefix = item.trainingType === "split"
         ? "Сплит: "
@@ -3847,9 +3819,12 @@ function getSessionsByDate(dateISO) {
       };
     }
 
-    const marks = Object.values(item.data.attendance || {});
-    const attended = marks.filter((status) => status === "присутствовал").length;
-    const missed = marks.filter((status) => status === "отсутствовал").length;
+    let attended = 0;
+    let missed = 0;
+    Object.values(item.data.attendance || {}).forEach((status) => {
+      if (status === "присутствовал") attended += 1;
+      else if (status === "отсутствовал") missed += 1;
+    });
     const statusLabel = attended || missed ? `+${attended}/-${missed}` : "";
     return {
       type: "group",
@@ -3857,6 +3832,53 @@ function getSessionsByDate(dateISO) {
       status: statusLabel
     };
   });
+}
+
+function buildSessionsIndex(students, groups) {
+  const index = new Map();
+  const append = (dateISO, row) => {
+    const bucket = index.get(dateISO);
+    if (bucket) {
+      bucket.push(row);
+      return;
+    }
+    index.set(dateISO, [row]);
+  };
+
+  (Array.isArray(students) ? students : []).forEach((student) => {
+    (Array.isArray(student.sessions) ? student.sessions : []).forEach((session) => {
+      const dateISO = String(session?.date || "");
+      if (!dateISO) return;
+      append(dateISO, {
+        type: "personal",
+        studentId: student.id,
+        studentName: student.name,
+        trainingType: student.trainingType,
+        participants: Array.isArray(student.participants) ? student.participants : [],
+        data: session
+      });
+    });
+  });
+
+  (Array.isArray(groups) ? groups : []).forEach((group) => {
+    (Array.isArray(group.sessions) ? group.sessions : []).forEach((session) => {
+      const dateISO = String(session?.date || "");
+      if (!dateISO) return;
+      append(dateISO, {
+        type: "group",
+        groupId: group.id,
+        groupName: group.name,
+        students: group.students,
+        data: session
+      });
+    });
+  });
+
+  index.forEach((rows) => {
+    rows.sort((a, b) => String(a.data.time).localeCompare(String(b.data.time)));
+  });
+
+  return index;
 }
 
 function buildSalaryReport(monthISO) {
@@ -3874,14 +3896,16 @@ function buildSalaryReport(monthISO) {
   let miniGroupIncome = 0;
 
   students.forEach((student) => {
-    const attendedSessions = student.sessions.filter((session) => {
-      return session.status === "пришел" && isDateInMonth(session.date, month);
+    let attended = 0;
+    let incomeRaw = 0;
+    (Array.isArray(student.sessions) ? student.sessions : []).forEach((session) => {
+      if (session.status !== "пришел") return;
+      if (!isDateInMonth(session.date, month)) return;
+      attended += 1;
+      incomeRaw += Number(session.coachIncome || 0);
     });
-
-    if (!attendedSessions.length) return;
-
-    const income = roundMoney(attendedSessions.reduce((sum, session) => sum + Number(session.coachIncome || 0), 0));
-    const attended = attendedSessions.length;
+    if (!attended) return;
+    const income = roundMoney(incomeRaw);
 
     rows.push({
       id: student.id,
@@ -3964,34 +3988,53 @@ function getStatistics() {
   let paidSessionCount = 0;
 
   students.forEach((student) => {
-    const visits = student.sessions.filter((session) => session.status === "пришел");
-    const misses = student.sessions.filter((session) => session.status === "не пришел");
-    const lastMarked = [...visits, ...misses].sort((a, b) => compareISODate(b.date, a.date))[0];
+    let visits = 0;
+    let misses = 0;
+    let incomeRaw = 0;
+    let lastMarkedDate = null;
+    (Array.isArray(student.sessions) ? student.sessions : []).forEach((session) => {
+      const status = session.status;
+      if (status === "пришел") {
+        visits += 1;
+        incomeRaw += Number(session.coachIncome || 0);
+        if (!lastMarkedDate || compareISODate(session.date, lastMarkedDate) > 0) {
+          lastMarkedDate = session.date;
+        }
+        return;
+      }
+
+      if (status === "не пришел") {
+        misses += 1;
+        if (!lastMarkedDate || compareISODate(session.date, lastMarkedDate) > 0) {
+          lastMarkedDate = session.date;
+        }
+      }
+    });
 
     const purchasedTrainings = (student.packagesHistory || []).reduce((sum, item) => sum + Number(item.count || 0), 0);
     const renewals = Math.max(0, (student.packagesHistory || []).length - 1);
-    const income = roundMoney(visits.reduce((sum, session) => sum + Number(session.coachIncome || 0), 0));
+    const income = roundMoney(incomeRaw);
 
-    totalVisits += visits.length;
-    totalMisses += misses.length;
+    totalVisits += visits;
+    totalMisses += misses;
     totalPurchasedTrainings += purchasedTrainings;
     totalRemainingTrainings += Number(student.remainingTrainings || 0);
     totalPackageRenewals += renewals;
     totalIncome += income;
-    paidSessionCount += visits.length;
+    paidSessionCount += visits;
 
     cards.push({
       id: student.id,
       type: student.trainingType,
       name: student.name,
       participants: student.participants,
-      visits: visits.length,
-      misses: misses.length,
+      visits,
+      misses,
       purchasedTrainings,
       remainingTrainings: Number(student.remainingTrainings || 0),
       renewals,
       income,
-      lastVisitDate: lastMarked ? lastMarked.date : null
+      lastVisitDate: lastMarkedDate
     });
   });
 
@@ -4000,15 +4043,20 @@ function getStatistics() {
     let misses = 0;
     let lastDate = null;
 
-    group.sessions.forEach((session) => {
-      const marks = Object.values(session.attendance || {});
-      if (!marks.length) return;
+    (Array.isArray(group.sessions) ? group.sessions : []).forEach((session) => {
+      const attendance = session.attendance || {};
+      let markedInSession = false;
+      Object.values(attendance).forEach((status) => {
+        if (status === "присутствовал") {
+          visits += 1;
+          markedInSession = true;
+        } else if (status === "отсутствовал") {
+          misses += 1;
+          markedInSession = true;
+        }
+      });
 
-      const presentCount = marks.filter((status) => status === "присутствовал").length;
-      const absentCount = marks.filter((status) => status === "отсутствовал").length;
-      visits += presentCount;
-      misses += absentCount;
-
+      if (!markedInSession) return;
       if (!lastDate || compareISODate(session.date, lastDate) > 0) {
         lastDate = session.date;
       }

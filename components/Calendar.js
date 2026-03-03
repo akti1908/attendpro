@@ -86,9 +86,14 @@ function renderDaySummary(sessions) {
     return `<span class="muted calendar-empty">Нет тренировок</span>`;
   }
 
-  const personalCount = sessions.filter((session) => session.type === "personal").length;
-  const groupCount = sessions.filter((session) => session.type === "group").length;
-  const plannedCount = sessions.filter((session) => !session.status || session.status === "запланировано").length;
+  let personalCount = 0;
+  let groupCount = 0;
+  let plannedCount = 0;
+  sessions.forEach((session) => {
+    if (session.type === "personal") personalCount += 1;
+    else if (session.type === "group") groupCount += 1;
+    if (!session.status || session.status === "запланировано") plannedCount += 1;
+  });
   const markedCount = sessions.length - plannedCount;
 
   return `
