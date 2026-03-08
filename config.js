@@ -11,7 +11,7 @@ window.ATTENDPRO_CLOUD = {
 // 2) Temporary compatibility mode ("as before"): direct browser -> Telegram API via botToken/chatId.
 //    Warning: in direct mode the bot token is visible in client code.
 window.ATTENDPRO_TELEGRAM = {
-  apiBaseUrl: "",
+  apiBaseUrl: "https://YOUR_BACKEND_BASE_URL",
   schedulerMode: "server",
   botToken: "",
   chatId: "",

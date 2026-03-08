@@ -28,6 +28,7 @@ const AUTO_REPORT_SCHEDULER_ENABLED = String(process.env.AUTO_REPORT_SCHEDULER_E
 const AUTO_REPORT_POLL_MS = clampInt(process.env.AUTO_REPORT_POLL_MS, 60000, 5000, 3600000);
 const REPORTS_TIMEZONE = normalizeTimeZone(String(process.env.REPORTS_TIMEZONE || "Asia/Bishkek").trim());
 const AUTO_REPORT_RUN_TOKEN = String(process.env.AUTO_REPORT_RUN_TOKEN || "").trim();
+const CORS_ALLOWED_ORIGINS = parseAllowedOrigins(process.env.CORS_ALLOWED_ORIGINS || "");
 
 const TELEGRAM_REPORT_MAX_LENGTH = 3900;
 const IDEMPOTENCY_TTL_MS = 1000 * 60 * 60 * 36;
@@ -59,6 +60,24 @@ app.use((req, res, next) => {
 });
 
 app.use(express.json({ limit: "256kb" }));
+
+app.use((req, res, next) => {
+  const origin = normalizeOrigin(req.headers.origin);
+  const allowed = isOriginAllowed(origin);
+
+  if (allowed) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
+    res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Idempotency-Key, X-Run-Token");
+  }
+
+  if (req.method === "OPTIONS") {
+    return res.status(204).end();
+  }
+
+  return next();
+});
 
 app.get("/api/health", (_req, res) => {
   return res.json({
@@ -716,6 +735,28 @@ function hasTelegramConfig() {
 
 function hasSupabaseAdminConfig() {
   return Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
+}
+
+function parseAllowedOrigins(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return [];
+  return raw
+    .split(",")
+    .map((origin) => normalizeOrigin(origin))
+    .filter(Boolean);
+}
+
+function normalizeOrigin(value) {
+  const raw = String(value || "").trim().replace(/\/+$/, "");
+  if (!raw) return "";
+  return raw.toLowerCase();
+}
+
+function isOriginAllowed(origin) {
+  if (!origin) return false;
+  if (!CORS_ALLOWED_ORIGINS.length) return false;
+  if (CORS_ALLOWED_ORIGINS.includes("*")) return true;
+  return CORS_ALLOWED_ORIGINS.includes(origin);
 }
 
 function clampInt(value, fallback, min, max) {
