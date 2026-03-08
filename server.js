@@ -112,6 +112,13 @@ app.post("/api/telegram/send-report", async (req, res) => {
 
   const dateISO = String(req.body?.dateISO || "").trim();
   const userEmail = String(req.body?.userEmail || "").trim().toLowerCase();
+  const chatId = normalizeTelegramChatId(req.body?.chatId || TELEGRAM_CHAT_ID);
+  if (!chatId) {
+    return res.status(400).json({
+      ok: false,
+      message: "Telegram chatId не указан. Укажите TELEGRAM_CHAT_ID или передайте chatId в теле запроса."
+    });
+  }
   const rawIdempotencyKey = String(req.body?.idempotencyKey || req.headers["x-idempotency-key"] || "").trim();
 
   try {
@@ -119,6 +126,7 @@ app.post("/api/telegram/send-report", async (req, res) => {
       text,
       dateISO,
       userEmail,
+      chatId,
       source: "manual",
       idempotencyKey: rawIdempotencyKey
     });
@@ -208,6 +216,7 @@ async function runAutoReportScheduler(context = {}) {
           text,
           dateISO: now.dateISO,
           userEmail: String(account?.email || "").toLowerCase(),
+          chatId: autoReport.chatId,
           source: "auto",
           slotKey,
           idempotencyKey: `attendpro:auto:${String(account?.id || account?.email || "unknown")}:${slotKey}`
@@ -274,7 +283,7 @@ async function dispatchTelegramReport(payload) {
   }
 
   try {
-    const response = await sendTelegramMessage(text);
+    const response = await sendTelegramMessage(text, payload?.chatId);
     await markIdempotencyStatus(idempotencyKey, {
       status: "sent",
       sent_at: new Date().toISOString(),
@@ -292,9 +301,14 @@ async function dispatchTelegramReport(payload) {
   }
 }
 
-async function sendTelegramMessage(text) {
+async function sendTelegramMessage(text, chatId = "") {
+  const targetChatId = normalizeTelegramChatId(chatId || TELEGRAM_CHAT_ID);
+  if (!targetChatId) {
+    throw new Error("Telegram chatId is not configured.");
+  }
+
   const payload = {
-    chat_id: TELEGRAM_CHAT_ID,
+    chat_id: targetChatId,
     text: limitTelegramText(text),
     disable_web_page_preview: true,
     allow_sending_without_reply: true
@@ -456,6 +470,11 @@ function normalizeObject(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 
+function normalizeTelegramChatId(value) {
+  const trimmed = String(value || "").trim();
+  return /^-?\d+$/.test(trimmed) ? trimmed : "";
+}
+
 function normalizeAutoReportSettings(raw) {
   const source = normalizeObject(raw);
   const days = Array.isArray(source.days)
@@ -465,11 +484,13 @@ function normalizeAutoReportSettings(raw) {
     : [];
   const hourRaw = Number(source.hour);
   const hour = Number.isInteger(hourRaw) && hourRaw >= 0 && hourRaw <= 23 ? hourRaw : 18;
+  const chatId = normalizeTelegramChatId(source?.chatId);
   const lastSentSlotKey = normalizeSlotKey(source.lastSentSlotKey);
   return {
     enabled: Boolean(source.enabled) && days.length > 0,
     days,
     hour,
+    chatId,
     lastSentSlotKey
   };
 }
@@ -690,7 +711,7 @@ function limitTelegramText(text) {
 }
 
 function hasTelegramConfig() {
-  return Boolean(TELEGRAM_BOT_TOKEN && TELEGRAM_CHAT_ID);
+  return Boolean(TELEGRAM_BOT_TOKEN);
 }
 
 function hasSupabaseAdminConfig() {

@@ -59,6 +59,7 @@ const DEFAULT_USER_SETTINGS = {
     enabled: false,
     days: [],
     hour: 18,
+    chatId: "",
     lastSentSlotKey: ""
   }
 };
@@ -386,7 +387,8 @@ function setAutoReportSettings(payload) {
   const daysChanged = JSON.stringify(currentAutoReport.days) !== JSON.stringify(nextAutoReport.days);
   const hourChanged = Number(currentAutoReport.hour) !== Number(nextAutoReport.hour);
   const enabledChanged = currentAutoReport.enabled !== nextAutoReport.enabled;
-  if (daysChanged || hourChanged || enabledChanged) {
+  const chatIdChanged = currentAutoReport.chatId !== nextAutoReport.chatId;
+  if (daysChanged || hourChanged || enabledChanged || chatIdChanged) {
     nextAutoReport.lastSentSlotKey = "";
   }
 
@@ -437,7 +439,10 @@ async function sendTodayReportToTelegram(targetDateISO = null, options = {}) {
       return { ok: false, message: "Авторизуйтесь для отправки отчета." };
     }
 
-    const telegramConfig = getTelegramReportConfig();
+    const userSettings = getUserSettings();
+    const telegramConfig = getTelegramReportConfig({
+      chatId: userSettings.autoReport?.chatId
+    });
     const backendTransport = getTelegramBackendTransportState(telegramConfig);
     const hasServerEndpoint = backendTransport.canUseBackend;
     const hasDirectTelegram = Boolean(telegramConfig.botToken && telegramConfig.chatId);
@@ -460,6 +465,7 @@ async function sendTodayReportToTelegram(targetDateISO = null, options = {}) {
         telegramConfig,
         reportDateISO,
         text,
+        chatId: telegramConfig.chatId,
         idempotencyKey
       });
       if (serverResult.ok) return serverResult;
@@ -491,6 +497,7 @@ async function sendTodayReportToTelegram(targetDateISO = null, options = {}) {
 async function sendTelegramReportViaBackend(payload) {
   const telegramConfig = payload.telegramConfig;
   const idempotencyKey = String(payload.idempotencyKey || "").trim();
+  const chatId = normalizeTelegramChatId(payload?.chatId);
   const timeoutMs = 12000;
   const controller = typeof AbortController === "function" ? new AbortController() : null;
   const timeoutId = controller
@@ -509,6 +516,7 @@ async function sendTelegramReportViaBackend(payload) {
         dateISO: payload.reportDateISO,
         userEmail: getCurrentUser()?.email || "",
         text: payload.text,
+        ...(chatId ? { chatId } : {}),
         ...(idempotencyKey ? { idempotencyKey } : {})
       })
     });
@@ -631,13 +639,15 @@ async function sendTelegramReportDirectNoCors(endpoint, body) {
   }
 }
 
-function getTelegramReportConfig() {
+function getTelegramReportConfig(overrides = {}) {
   const raw = window.ATTENDPRO_TELEGRAM || {};
+  const overrideChatId = normalizeTelegramChatId(overrides.chatId);
+  const configChatId = normalizeTelegramChatId(raw.chatId);
   return {
     apiBaseUrl: resolveTelegramApiBaseUrl(raw.apiBaseUrl),
     schedulerMode: normalizeTelegramSchedulerMode(raw.schedulerMode),
     botToken: String(raw.botToken || "").trim(),
-    chatId: String(raw.chatId || "").trim(),
+    chatId: overrideChatId || configChatId,
     messageThreadId: String(raw.messageThreadId || "").trim()
   };
 }
@@ -2252,6 +2262,11 @@ function normalizeAutoReportHour(value) {
   return hour;
 }
 
+function normalizeTelegramChatId(value) {
+  const trimmed = String(value || "").trim();
+  return /^-?\d+$/.test(trimmed) ? trimmed : "";
+}
+
 function normalizeAutoReportSlotKey(value) {
   const slotKey = String(value || "").trim();
   if (/^\d{4}-\d{2}-\d{2}__\d{2}$/.test(slotKey)) {
@@ -2264,12 +2279,14 @@ function normalizeAutoReportSettings(rawAutoReport = {}) {
   const days = sanitizeWeekDays(rawAutoReport?.days, []);
   const hour = normalizeAutoReportHour(rawAutoReport?.hour);
   const enabled = Boolean(rawAutoReport?.enabled) && days.length > 0;
+  const chatId = normalizeTelegramChatId(rawAutoReport?.chatId);
   const lastSentSlotKey = normalizeAutoReportSlotKey(rawAutoReport?.lastSentSlotKey);
 
   return {
     enabled,
     days,
     hour,
+    chatId,
     lastSentSlotKey
   };
 }

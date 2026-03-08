@@ -19,10 +19,12 @@ export function renderSettings(root, ctx) {
     enabled: false,
     days: [],
     hour: 18,
+    chatId: "",
     lastSentSlotKey: ""
   };
   const autoReportDays = Array.isArray(autoReport.days) ? autoReport.days.map((day) => Number(day)) : [];
   const autoReportHour = Number.isInteger(Number(autoReport.hour)) ? Number(autoReport.hour) : 18;
+  const autoReportChatId = String(autoReport.chatId || "").trim();
 
   root.innerHTML = `
     <section class="card">
@@ -106,6 +108,15 @@ export function renderSettings(root, ctx) {
           <summary class="setting-summary">Автоотчет в Telegram</summary>
           <div class="setting-collapse-body">
             <div class="setting-item">
+              <label for="auto-report-chat-id" class="muted">ID чата Telegram</label>
+              <input
+                id="auto-report-chat-id"
+                type="text"
+                inputmode="numeric"
+                autocomplete="off"
+                placeholder="Напр.: -1001234567890"
+                value="${escapeHtml(autoReportChatId)}"
+              />
               <label class="setting-inline" for="auto-report-enabled">
                 <input id="auto-report-enabled" type="checkbox" ${autoReport.enabled ? "checked" : ""} />
                 <span>Включить автоматическую отправку</span>
@@ -247,8 +258,18 @@ export function renderSettings(root, ctx) {
       .map((input) => Number(input.value))
       .filter((day) => Number.isInteger(day) && day >= 0 && day <= 6);
     const hour = Number(root.querySelector("#auto-report-hour")?.value ?? autoReportHour);
-
+    const telegramChatId = String(root.querySelector("#auto-report-chat-id")?.value || "").trim();
     const message = root.querySelector("#settings-auto-report-message");
+
+    if (telegramChatId && !isValidTelegramChatId(telegramChatId)) {
+      if (message) {
+        message.textContent = "ID чата должен быть числом (например, -1001234567890).";
+        message.classList.add("auth-error");
+        message.classList.remove("auth-success");
+      }
+      return;
+    }
+
     if (enabled && !days.length) {
       if (message) {
         message.textContent = "Выберите хотя бы один день недели для автоотчета.";
@@ -261,7 +282,8 @@ export function renderSettings(root, ctx) {
     ctx.actions.setAutoReportSettings({
       enabled,
       days,
-      hour
+      hour,
+      chatId: telegramChatId
     });
 
     if (message) {
@@ -340,6 +362,11 @@ function getPriceValue(item) {
 
 function formatMoney(value) {
   return Math.round(Number(value || 0)).toLocaleString("ru-RU");
+}
+
+function isValidTelegramChatId(value) {
+  const normalized = String(value || "").trim();
+  return /^-?\d+$/.test(normalized);
 }
 
 function escapeHtml(value) {
