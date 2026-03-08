@@ -688,7 +688,7 @@ function resolveTelegramApiBaseUrl(value) {
     .trim()
     .replace(/\/+$/, "");
   if (explicitUrl) return explicitUrl;
-  if (window.location.protocol === "http:" || window.location.protocol === "https:") {
+  if (window.location.protocol.startsWith("http") && isLocalhostOrigin(window.location.hostname)) {
     return window.location.origin.replace(/\/+$/, "");
   }
   return "";
