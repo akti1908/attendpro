@@ -4,6 +4,11 @@ export function renderGroupCard(group, ctx) {
   const availableHours = resolveAvailableHours(
     typeof ctx.getWorkHoursForDays === "function" ? ctx.getWorkHoursForDays(group.scheduleDays) : ctx.workHours
   );
+  const periodStartDate = normalizeDateISO(group.periodStartDate, ctx.getTodayISO());
+  const periodEndDate = normalizeDateISO(group.periodEndDate, "");
+  const periodLabel = periodEndDate
+    ? `${ctx.formatDate(periodStartDate)} - ${ctx.formatDate(periodEndDate)}`
+    : `С ${ctx.formatDate(periodStartDate)} (без даты окончания)`;
   const upcomingSessions = group.sessions
     .slice()
     .sort((a, b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`))
@@ -27,11 +32,18 @@ export function renderGroupCard(group, ctx) {
       <p class="muted">Дни: ${group.scheduleDays.map((day) => ctx.dayLabel(day)).join(", ")} | Время: ${group.time}</p>
       <p class="muted">Ученики: ${safeMembers}</p>
 
+      <p class="muted">Период: ${periodLabel}</p>
+
       <div class="card-edit-panel is-hidden" data-group-edit-panel="${group.id}">
         <div class="form-row">
           <input data-group-field="name" type="text" value="${escapeAttr(group.name)}" placeholder="Название группы" />
           <select data-group-field="hour">${renderHourOptions(availableHours, resolvedHour)}</select>
           <input data-group-field="students" type="text" value="${escapeAttr(group.students.map((student) => student.name).join(", "))}" placeholder="Ученики (через запятую)" />
+        </div>
+
+        <div class="form-row">
+          <input data-group-field="period-start-date" type="date" value="${periodStartDate}" />
+          <input data-group-field="period-end-date" type="date" value="${periodEndDate}" />
         </div>
 
         <div class="days mt-8" data-group-days-container="${group.id}">
@@ -55,6 +67,7 @@ export function renderGroupsManager(root, ctx) {
   const allowedWorkDays = normalizeAllowedDays(ctx.workSchedule?.days);
   const availableHours = resolveAvailableHours(ctx.workHours);
   const defaultHour = getDefaultHour(availableHours);
+  const defaultPeriodStartDate = normalizeDateISO(ctx.state?.selectedDate, ctx.getTodayISO());
 
   root.innerHTML = `
     <section class="card">
@@ -78,6 +91,10 @@ export function renderGroupsManager(root, ctx) {
             <select required name="hour">${renderHourOptions(availableHours, defaultHour)}</select>
             <input required name="students" placeholder="Ученики (через запятую)" />
           </div>
+          <div class="form-row">
+            <input required name="periodStartDate" type="date" value="${defaultPeriodStartDate}" />
+            <input name="periodEndDate" type="date" />
+          </div>
           <div id="group-days" class="days">${renderDayCheckboxes(ctx.weekDays, [], "group-day", allowedWorkDays)}</div>
           <div class="session-actions">
             <button class="btn btn-primary" type="submit">Добавить группу</button>
@@ -94,6 +111,8 @@ export function renderGroupsManager(root, ctx) {
 
   const resetGroupForm = () => {
     groupForm?.reset();
+    const startInput = groupForm?.querySelector('input[name="periodStartDate"]');
+    if (startInput) startInput.value = defaultPeriodStartDate;
   };
 
   const closeGroupModal = () => {
@@ -141,6 +160,8 @@ export function renderGroupsManager(root, ctx) {
       name: String(formData.get("name")).trim(),
       scheduleDays,
       time: hourToTimeString(formData.get("hour")),
+      periodStartDate: String(formData.get("periodStartDate") || "").trim(),
+      periodEndDate: String(formData.get("periodEndDate") || "").trim(),
       students
     });
   });
@@ -183,6 +204,8 @@ export function renderGroupsManager(root, ctx) {
 
       const name = String(panel.querySelector('[data-group-field="name"]')?.value || "").trim();
       const hour = String(panel.querySelector('[data-group-field="hour"]')?.value || "0");
+      const periodStartDate = String(panel.querySelector('[data-group-field="period-start-date"]')?.value || "").trim();
+      const periodEndDate = String(panel.querySelector('[data-group-field="period-end-date"]')?.value || "").trim();
       const studentsRaw = String(panel.querySelector('[data-group-field="students"]')?.value || "");
       const students = studentsRaw.split(",").map((item) => item.trim()).filter(Boolean);
       const scheduleDays = [...panel.querySelectorAll('input[data-day-input="1"]:checked')].map((item) => Number(item.value));
@@ -191,6 +214,8 @@ export function renderGroupsManager(root, ctx) {
         name,
         scheduleDays,
         time: hourToTimeString(hour),
+        periodStartDate,
+        periodEndDate,
         students
       });
     });
@@ -288,6 +313,12 @@ function renderHourOptions(availableHours, selectedHour = 0) {
 function hourToTimeString(hourValue) {
   const hour = Number(hourValue);
   return `${String(hour).padStart(2, "0")}:00`;
+}
+
+function normalizeDateISO(value, fallback = "") {
+  const raw = String(value || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  return String(fallback || "");
 }
 
 function escapeAttr(value) {

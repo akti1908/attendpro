@@ -1519,6 +1519,10 @@ function normalizeStudent(rawStudent, fallbackOwnerId = null) {
 
 function normalizeGroup(rawGroup, fallbackOwnerId = null) {
   const ownerId = normalizeOwnerId(rawGroup.ownerId, fallbackOwnerId);
+  const sessions = Array.isArray(rawGroup.sessions) ? rawGroup.sessions.map(normalizeGroupSession) : [];
+  const createdAt = rawGroup.createdAt || new Date().toISOString();
+  const periodStartDate = normalizeGroupPeriodStartDate(rawGroup.periodStartDate, createdAt, sessions);
+  const periodEndDate = normalizeGroupPeriodEndDate(rawGroup.periodEndDate, periodStartDate);
   return {
     id: String(rawGroup.id || createId("group")),
     ownerId,
@@ -1531,8 +1535,10 @@ function normalizeGroup(rawGroup, fallbackOwnerId = null) {
         name: String(normalizeLegacyText(item.name || "")).trim()
       })).filter((item) => item.name)
       : [],
-    sessions: Array.isArray(rawGroup.sessions) ? rawGroup.sessions.map(normalizeGroupSession) : [],
-    createdAt: rawGroup.createdAt || new Date().toISOString()
+    sessions,
+    periodStartDate,
+    periodEndDate,
+    createdAt
   };
 }
 
@@ -2179,6 +2185,26 @@ function normalizeStudentActivationDate(value, createdAt, fallback = getTodayISO
     ? createdAt.slice(0, 10)
     : fallback;
   return ensureISODate(String(value || "").trim(), createdDateISO);
+}
+
+function normalizeGroupPeriodStartDate(value, createdAt, sessions = []) {
+  const createdDateISO = typeof createdAt === "string" && /^\d{4}-\d{2}-\d{2}T/.test(createdAt)
+    ? createdAt.slice(0, 10)
+    : getTodayISO();
+  const sourceSessions = Array.isArray(sessions) ? sessions : [];
+  const earliestSessionDate = sourceSessions
+    .map((session) => ensureISODate(session?.date, ""))
+    .filter(Boolean)
+    .sort((a, b) => compareISODate(a, b))[0];
+  const fallback = earliestSessionDate || createdDateISO;
+  return ensureISODate(String(value || "").trim(), fallback);
+}
+
+function normalizeGroupPeriodEndDate(value, periodStartDate) {
+  const endDate = ensureISODate(String(value || "").trim(), "");
+  if (!endDate) return "";
+  if (compareISODate(endDate, periodStartDate) < 0) return "";
+  return endDate;
 }
 
 function ensureMonthISO(value, fallback) {
@@ -3010,6 +3036,17 @@ function rebuildStudentPlannedSessions(student, startDateISO = getTodayISO(), op
 
 function rebuildGroupFutureSessions(group, startDateISO = getTodayISO()) {
   const horizonISO = addDaysISO(startDateISO, 30);
+  const periodStartDate = ensureISODate(group.periodStartDate, startDateISO);
+  const periodEndDate = ensureISODate(group.periodEndDate, "");
+
+  const generationStartDate = compareISODate(startDateISO, periodStartDate) < 0
+    ? periodStartDate
+    : startDateISO;
+  let generationEndDate = horizonISO;
+  if (periodEndDate && compareISODate(periodEndDate, generationEndDate) < 0) {
+    generationEndDate = periodEndDate;
+  }
+
   const preserved = group.sessions.filter((session) => {
     const hasMarks = Object.keys(session.attendance || {}).length > 0;
     return compareISODate(session.date, startDateISO) < 0 || hasMarks;
@@ -3018,9 +3055,15 @@ function rebuildGroupFutureSessions(group, startDateISO = getTodayISO()) {
   const occupied = new Set(preserved.map((session) => `${session.date}__${session.time}`));
   const generated = [];
 
-  let cursor = startDateISO;
+  if (periodEndDate && compareISODate(generationStartDate, periodEndDate) > 0) {
+    group.sessions = [...preserved];
+    sortSessionsByDateTime(group.sessions);
+    return;
+  }
+
+  let cursor = generationStartDate;
   let guard = 0;
-  while (compareISODate(cursor, horizonISO) <= 0 && guard < 500) {
+  while (compareISODate(cursor, generationEndDate) <= 0 && guard < 500) {
     const day = parseISODate(cursor).getDay();
     const key = `${cursor}__${group.time}`;
     if (group.scheduleDays.includes(day) && !occupied.has(key)) {
@@ -3489,6 +3532,8 @@ function addGroup(payload) {
   const name = String(payload.name || "").trim();
   const scheduleDays = sanitizeWeekDays(payload.scheduleDays);
   const time = sanitizeHourTime(payload.time);
+  const periodStartDate = ensureISODate(String(payload.periodStartDate || "").trim(), getTodayISO());
+  const periodEndDate = ensureISODate(String(payload.periodEndDate || "").trim(), "");
   const rawStudents = Array.isArray(payload.students) ? payload.students : [];
 
   if (!name) {
@@ -3511,6 +3556,11 @@ function addGroup(payload) {
     return;
   }
 
+  if (periodEndDate && compareISODate(periodEndDate, periodStartDate) < 0) {
+    alert("Р”Р°С‚Р° РѕРєРѕРЅС‡Р°РЅРёСЏ РїРµСЂРёРѕРґР° РЅРµ РјРѕР¶РµС‚ Р±С‹С‚СЊ СЂР°РЅСЊС€Рµ РґР°С‚С‹ РЅР°С‡Р°Р»Р°.");
+    return;
+  }
+
   const students = rawStudents
     .map((studentName) => String(studentName || "").trim())
     .filter(Boolean)
@@ -3530,6 +3580,8 @@ function addGroup(payload) {
     name,
     scheduleDays,
     time,
+    periodStartDate,
+    periodEndDate,
     students,
     sessions: [],
     createdAt: new Date().toISOString()
@@ -3550,6 +3602,18 @@ function updateGroupCardData(groupId, payload) {
   const name = String(payload?.name || "").trim();
   const scheduleDays = sanitizeWeekDays(payload?.scheduleDays);
   const time = sanitizeHourTime(payload?.time || group.time);
+  const periodStartDate = ensureISODate(
+    String(payload?.periodStartDate || group.periodStartDate || "").trim(),
+    ensureISODate(group.periodStartDate, getTodayISO())
+  );
+  const hasPeriodEndDateInPayload = Boolean(payload && Object.prototype.hasOwnProperty.call(payload, "periodEndDate"));
+  const rawPeriodEndDate = hasPeriodEndDateInPayload
+    ? String(payload?.periodEndDate || "").trim()
+    : String(group.periodEndDate || "").trim();
+  const periodEndDate = normalizeGroupPeriodEndDate(
+    rawPeriodEndDate,
+    periodStartDate
+  );
   const rawStudents = Array.isArray(payload?.students) ? payload.students : [];
   const names = rawStudents.map((value) => String(value || "").trim()).filter(Boolean);
 
@@ -3578,9 +3642,16 @@ function updateGroupCardData(groupId, payload) {
     return;
   }
 
+  if (rawPeriodEndDate && !periodEndDate) {
+    alert("Р”Р°С‚Р° РѕРєРѕРЅС‡Р°РЅРёСЏ РїРµСЂРёРѕРґР° РЅРµ РјРѕР¶РµС‚ Р±С‹С‚СЊ СЂР°РЅСЊС€Рµ РґР°С‚С‹ РЅР°С‡Р°Р»Р°.");
+    return;
+  }
+
   group.name = name;
   group.time = time;
   group.scheduleDays = scheduleDays;
+  group.periodStartDate = periodStartDate;
+  group.periodEndDate = periodEndDate;
   group.students = syncGroupStudentsByName(group.students, names);
 
   const allowedIds = new Set(group.students.map((student) => student.id));
