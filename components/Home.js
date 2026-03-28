@@ -63,6 +63,38 @@ export function renderHome(root, ctx) {
   });
 
   const datePicker = root.querySelector("#selected-date");
+  const dateDisplay = root.querySelector("#selected-date-display");
+  const dateWrap = root.querySelector(".date-center-wrap");
+
+  const openDatePickerFallback = () => {
+    if (!datePicker) return;
+
+    try {
+      if (typeof datePicker.showPicker === "function") {
+        datePicker.showPicker();
+        return;
+      }
+    } catch (_error) {
+      // no-op: перейдем к безопасному fallback ниже
+    }
+
+    try {
+      datePicker.focus({ preventScroll: true });
+      datePicker.click();
+    } catch (_error) {
+      // no-op
+    }
+  };
+
+  dateDisplay?.addEventListener("click", openDatePickerFallback);
+  dateDisplay?.addEventListener("touchend", (event) => {
+    event.preventDefault();
+    openDatePickerFallback();
+  });
+  dateWrap?.addEventListener("click", () => {
+    // Фолбэк для браузеров, где прозрачный input не получает tap стабильно.
+    openDatePickerFallback();
+  });
 
   datePicker?.addEventListener("change", (event) => {
     ctx.actions.setSelectedDate(event.currentTarget.value);
