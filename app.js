@@ -1255,6 +1255,7 @@ function buildContext() {
       reopenSalaryMonth,
       exportSalaryMonthCSV,
       exportStatisticsCSV,
+      exportGroupAttendanceMonthlyReport,
       exportBackupJSON,
       importBackupFromFile,
       setTheme,
@@ -4236,6 +4237,116 @@ function exportStatisticsCSV() {
     `\ufeff${lines.join("\n")}`,
     "text/csv;charset=utf-8"
   );
+}
+
+function exportGroupAttendanceMonthlyReport(groupId, monthISO) {
+  const ownerId = getCurrentUserId();
+  if (!ownerId) return;
+
+  const targetGroupId = String(groupId || "").trim();
+  if (!targetGroupId) {
+    alert("Выберите группу для выгрузки.");
+    return;
+  }
+
+  const group = state.groups.find((item) => item.id === targetGroupId && item.ownerId === ownerId);
+  if (!group) {
+    alert("Группа не найдена.");
+    return;
+  }
+
+  const targetMonth = ensureMonthISO(monthISO, getTodayISO().slice(0, 7));
+  const sessions = (Array.isArray(group.sessions) ? group.sessions : [])
+    .filter((session) => isDateInMonth(session.date, targetMonth))
+    .slice()
+    .sort((a, b) => `${a.date}__${a.time}`.localeCompare(`${b.date}__${b.time}`));
+
+  const dailyMap = new Map();
+  sessions.forEach((session) => {
+    const dateISO = ensureISODate(session.date, `${targetMonth}-01`);
+    if (!dailyMap.has(dateISO)) {
+      dailyMap.set(dateISO, {
+        presentIds: new Set()
+      });
+    }
+
+    const bucket = dailyMap.get(dateISO);
+    Object.entries(session.attendance || {}).forEach(([studentId, status]) => {
+      const normalizedStatus = normalizeLegacyText(status);
+      if (normalizedStatus !== "присутствовал") return;
+      bucket.presentIds.add(String(studentId));
+    });
+  });
+
+  const reportLines = [];
+  const monthDate = parseISODate(`${targetMonth}-01`);
+  const monthTitle = `${capitalizeFirstLetter(monthDate.toLocaleDateString("ru-RU", { month: "long" }))} ${targetMonth.slice(0, 4)}`;
+  reportLines.push(`Отчёт по: ${group.name}`);
+  reportLines.push(`(${monthTitle})`);
+  reportLines.push("");
+
+  const sortedDates = [...dailyMap.keys()].sort((a, b) => compareISODate(a, b));
+  if (!sortedDates.length) {
+    reportLines.push("За выбранный месяц занятий нет.");
+  } else {
+    sortedDates.forEach((dateISO, index) => {
+      const dateObj = parseISODate(dateISO);
+      const dateLabel = dateObj.toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
+      const weekDay = dateObj.toLocaleDateString("ru-RU", { weekday: "long" });
+      const presentNames = resolveGroupPresentNames(group, dailyMap.get(dateISO)?.presentIds || new Set());
+
+      reportLines.push(`${dateLabel} - ${weekDay}`);
+      if (presentNames.length) {
+        reportLines.push(presentNames.join(", "));
+      } else {
+        reportLines.push("Отметок нет");
+      }
+      reportLines.push(`Кол-во: ${presentNames.length}`);
+
+      if (index < sortedDates.length - 1) {
+        reportLines.push("");
+      }
+    });
+  }
+
+  const safeGroupName = sanitizeFileNamePart(group.name || "group");
+  downloadFile(
+    `attendpro-group-attendance-${safeGroupName}-${targetMonth}.txt`,
+    reportLines.join("\n"),
+    "text/plain;charset=utf-8"
+  );
+}
+
+function resolveGroupPresentNames(group, presentIds) {
+  const students = Array.isArray(group?.students) ? group.students : [];
+  const idSet = presentIds instanceof Set ? presentIds : new Set();
+  const knownIds = new Set(students.map((student) => String(student.id)));
+
+  const orderedKnownNames = students
+    .filter((student) => idSet.has(String(student.id)))
+    .map((student) => String(student.name || "").trim())
+    .filter(Boolean);
+
+  const unknownNames = [...idSet]
+    .filter((studentId) => !knownIds.has(studentId))
+    .map((studentId) => `ID ${studentId}`);
+
+  return [...orderedKnownNames, ...unknownNames];
+}
+
+function sanitizeFileNamePart(value) {
+  return String(value || "group")
+    .trim()
+    .replace(/[^a-zA-Z0-9\u0400-\u04FF_-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .toLowerCase() || "group";
+}
+
+function capitalizeFirstLetter(value) {
+  const raw = String(value || "");
+  if (!raw) return "";
+  return raw.charAt(0).toUpperCase() + raw.slice(1);
 }
 
 function exportBackupJSON() {
