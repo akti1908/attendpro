@@ -3873,6 +3873,7 @@ function exportSalaryMonthCSV(monthISO) {
   const lines = [
     "Период;Персональные занятия;Сплит занятия;Мини-группа занятия;ЗП персональные;ЗП сплит;ЗП мини-группа;Всего занятий;Итоговая ЗП",
     `${report.monthISO};${report.personal.sessions};${report.split.sessions};${miniGroup.sessions};${roundMoney(report.personal.income)};${roundMoney(report.split.income)};${roundMoney(miniGroup.income)};${report.totalSessions};${roundMoney(report.totalIncome)}`,
+    `\u041E\u0431\u0449\u0430\u044F \u0441\u0443\u043C\u043C\u0430 \u043F\u0440\u043E\u0434\u0430\u0436;${roundMoney(report.totalSales || 0)}`,
     "",
     "Карточка;Тип;Посещений;ЗП"
   ];
@@ -3982,6 +3983,7 @@ function buildSalaryReport(monthISO) {
   const startDateISO = monthStartISO(month);
   const endDateISO = monthEndISO(month);
   const students = getStudentsForUser();
+  const salesSummary = buildMonthlySalesSummary(month, students);
 
   const rows = [];
   let personalSessions = 0;
@@ -4044,9 +4046,47 @@ function buildSalaryReport(monthISO) {
       sessions: miniGroupSessions,
       income: roundMoney(miniGroupIncome)
     },
+    sales: {
+      personal: salesSummary.personal,
+      split: salesSummary.split,
+      miniGroup: salesSummary.miniGroup
+    },
+    totalSales: salesSummary.total,
     totalSessions,
     totalIncome,
     rows
+  };
+}
+
+function buildMonthlySalesSummary(monthISO, students = getStudentsForUser()) {
+  let personalSales = 0;
+  let splitSales = 0;
+  let miniGroupSales = 0;
+
+  students.forEach((student) => {
+    const trainingType = normalizeTrainingType(student.trainingType);
+    const packagesHistory = Array.isArray(student.packagesHistory) ? student.packagesHistory : [];
+
+    packagesHistory.forEach((item) => {
+      const purchaseDateISO = getPackagePurchaseDateISO(item, student.createdAt || getTodayISO());
+      if (!isDateInMonth(purchaseDateISO, monthISO)) return;
+
+      const amount = getPackageSaleAmount(item, trainingType, student.participants);
+      if (trainingType === "split") {
+        splitSales += amount;
+      } else if (trainingType === "mini_group") {
+        miniGroupSales += amount;
+      } else {
+        personalSales += amount;
+      }
+    });
+  });
+
+  return {
+    personal: roundMoney(personalSales),
+    split: roundMoney(splitSales),
+    miniGroup: roundMoney(miniGroupSales),
+    total: roundMoney(personalSales + splitSales + miniGroupSales)
   };
 }
 
@@ -4054,10 +4094,18 @@ function getSalaryReport(monthISO) {
   const month = ensureMonthISO(monthISO, state.salaryMonth);
   const ownerId = getCurrentUserId();
   const closure = state.salaryClosures.find((item) => item.ownerId === ownerId && item.monthISO === month);
+  const salesFallback = buildMonthlySalesSummary(month);
 
   if (closure) {
+    const snapshotSales = closure.snapshot?.sales || {};
     return {
       ...closure.snapshot,
+      sales: {
+        personal: roundMoney(Number(snapshotSales.personal ?? salesFallback.personal)),
+        split: roundMoney(Number(snapshotSales.split ?? salesFallback.split)),
+        miniGroup: roundMoney(Number(snapshotSales.miniGroup ?? salesFallback.miniGroup))
+      },
+      totalSales: roundMoney(Number(closure.snapshot?.totalSales ?? salesFallback.total)),
       isClosed: true,
       closedAt: closure.closedAt
     };

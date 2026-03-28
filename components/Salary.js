@@ -31,6 +31,7 @@ export function renderSalary(root, ctx) {
         <div class="stat-card"><span class="muted">ЗП с персональных</span><strong>${formatMoney(report.personal.income)} сом</strong></div>
         <div class="stat-card"><span class="muted">ЗП со сплитов</span><strong>${formatMoney(report.split.income)} сом</strong></div>
         <div class="stat-card"><span class="muted">ЗП с мини-групп</span><strong>${formatMoney(miniGroup.income)} сом</strong></div>
+        <div class="stat-card"><span class="muted">\u041E\u0431\u0449\u0430\u044F \u0441\u0443\u043C\u043C\u0430 \u043F\u0440\u043E\u0434\u0430\u0436</span><strong>${formatMoney(report.totalSales || 0)} \u0441\u043E\u043C</strong></div>
         <div class="stat-card"><span class="muted">Всего занятий</span><strong>${report.totalSessions}</strong></div>
         <div class="stat-card"><span class="muted">Итоговая ЗП</span><strong>${formatMoney(report.totalIncome)} сом</strong></div>
       </div>
