@@ -19,10 +19,12 @@ export function renderHome(root, ctx) {
         <h2 class="section-title">Журнал посещаемости</h2>
         <div class="date-toolbar">
           <button id="prev-day" class="btn small-btn day-arrow-btn" aria-label="Предыдущий день" title="Предыдущий день">◀</button>
-          <button id="selected-date-display" class="btn small-btn date-center-btn" type="button">${selectedDateLabel}</button>
+          <div class="date-input-wrap">
+            <button id="selected-date-display" class="btn small-btn date-center-btn" type="button">${selectedDateLabel}</button>
+            <input id="selected-date" class="date-input-overlay" type="date" value="${selectedDate}" aria-label="Выбрать дату" />
+          </div>
           <button id="next-day" class="btn small-btn day-arrow-btn" aria-label="Следующий день" title="Следующий день">▶</button>
         </div>
-        <input id="selected-date" class="date-picker-hidden" type="date" value="${selectedDate}" />
         ${showEditToggle
           ? `
             <div class="home-edit-row">
@@ -59,18 +61,6 @@ export function renderHome(root, ctx) {
 
   root.querySelector("#next-day").addEventListener("click", () => {
     ctx.actions.shiftSelectedDate(1);
-  });
-
-  const datePicker = root.querySelector("#selected-date");
-  const dateDisplay = root.querySelector("#selected-date-display");
-  dateDisplay?.addEventListener("click", () => {
-    if (!datePicker) return;
-    if (typeof datePicker.showPicker === "function") {
-      datePicker.showPicker();
-      return;
-    }
-    datePicker.focus();
-    datePicker.click();
   });
 
   root.querySelector("#selected-date").addEventListener("change", (event) => {
