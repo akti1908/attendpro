@@ -3038,6 +3038,11 @@ function rebuildGroupFutureSessions(group, startDateISO = getTodayISO()) {
   const horizonISO = addDaysISO(startDateISO, 30);
   const periodStartDate = ensureISODate(group.periodStartDate, startDateISO);
   const periodEndDate = ensureISODate(group.periodEndDate, "");
+  const isDateInPeriod = (dateISO) => {
+    if (compareISODate(dateISO, periodStartDate) < 0) return false;
+    if (periodEndDate && compareISODate(dateISO, periodEndDate) > 0) return false;
+    return true;
+  };
 
   const generationStartDate = compareISODate(startDateISO, periodStartDate) < 0
     ? periodStartDate
@@ -3049,7 +3054,9 @@ function rebuildGroupFutureSessions(group, startDateISO = getTodayISO()) {
 
   const preserved = group.sessions.filter((session) => {
     const hasMarks = Object.keys(session.attendance || {}).length > 0;
-    return compareISODate(session.date, startDateISO) < 0 || hasMarks;
+    if (hasMarks) return true;
+    const isPast = compareISODate(session.date, startDateISO) < 0;
+    return isPast && isDateInPeriod(session.date);
   });
 
   const occupied = new Set(preserved.map((session) => `${session.date}__${session.time}`));
