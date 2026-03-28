@@ -57,6 +57,13 @@ export function renderSession(entry, options = {}) {
   const markedCount = entry.students.filter((student) => Boolean(session.attendance[student.id])).length;
   const hasAnyMarked = markedCount > 0;
   const allMarked = entry.students.length > 0 && markedCount >= entry.students.length;
+  const presentNames = entry.students
+    .filter((student) => session.attendance[student.id] === "присутствовал")
+    .map((student) => student.name);
+  const absentNames = entry.students
+    .filter((student) => session.attendance[student.id] === "отсутствовал")
+    .map((student) => student.name);
+  const summaryBlock = allMarked ? renderGroupAttendanceSummary(presentNames, absentNames) : "";
 
   const attendanceControls = entry.students
     .map((student) => {
@@ -91,11 +98,41 @@ export function renderSession(entry, options = {}) {
         <button class="btn small-btn" ${(allMarked && editable) ? "" : "disabled"} data-action="toggle-session-edit" data-session-id="${session.id}">Редактировать</button>
       </div>
       ${hasAnyMarked ? `<div class="marked-note">Есть проставленные отметки</div>` : ""}
+      ${summaryBlock}
       <div class="${allMarked ? "is-hidden" : ""}" data-editable-controls="1">
         ${attendanceControls}
       </div>
     </article>
   `;
+}
+
+function renderGroupAttendanceSummary(presentNames, absentNames) {
+  return `
+    <section class="group-attendance-summary" aria-label="Итог посещаемости группы">
+      <div class="group-summary-section group-summary-present">
+        <h4 class="group-summary-title">Присутствовали</h4>
+        <ul class="group-summary-list">
+          ${renderGroupSummaryList(presentNames)}
+        </ul>
+      </div>
+      <div class="group-summary-section group-summary-absent">
+        <h4 class="group-summary-title">Отсутствовали</h4>
+        <ul class="group-summary-list">
+          ${renderGroupSummaryList(absentNames)}
+        </ul>
+      </div>
+    </section>
+  `;
+}
+
+function renderGroupSummaryList(names) {
+  if (!Array.isArray(names) || !names.length) {
+    return `<li class="group-summary-empty">-</li>`;
+  }
+
+  return names
+    .map((name) => `<li class="group-summary-name">${escapeHtml(name)}</li>`)
+    .join("");
 }
 
 function escapeHtml(value) {

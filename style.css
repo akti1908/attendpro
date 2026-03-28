@@ -804,6 +804,54 @@ input[type="radio"] {
   margin-top: 6px;
 }
 
+.group-attendance-summary {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+  width: min(100%, 520px);
+}
+
+.group-summary-section {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+  background: var(--surface-soft);
+}
+
+.group-summary-present {
+  border-color: rgba(34, 197, 94, 0.3);
+  background: linear-gradient(0deg, rgba(34, 197, 94, 0.08), rgba(34, 197, 94, 0.08)), var(--surface-soft);
+}
+
+.group-summary-absent {
+  border-color: rgba(239, 68, 68, 0.28);
+  background: linear-gradient(0deg, rgba(239, 68, 68, 0.08), rgba(239, 68, 68, 0.08)), var(--surface-soft);
+}
+
+.group-summary-title {
+  margin: 0 0 6px;
+  font-size: 0.82rem;
+  letter-spacing: 0.2px;
+}
+
+.group-summary-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.group-summary-name {
+  font-size: 0.86rem;
+}
+
+.group-summary-empty {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
