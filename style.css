@@ -666,13 +666,27 @@ input[type="radio"] {
   letter-spacing: 0.2px;
 }
 
-.date-picker-hidden {
+.date-center-wrap {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+}
+
+.date-picker-overlay {
   position: absolute;
-  left: -9999px;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   opacity: 0;
-  width: 1px;
-  height: 1px;
-  pointer-events: none;
+  cursor: pointer;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  color: transparent;
+  z-index: 2;
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 .home-edit-row {
