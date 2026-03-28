@@ -1,4 +1,4 @@
-const CACHE_NAME = "attendpro-cache-v10";
+const CACHE_NAME = "attendpro-cache-v11";
 
 const APP_SHELL = [
   "./",

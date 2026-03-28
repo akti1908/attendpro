@@ -666,16 +666,6 @@ input[type="radio"] {
   letter-spacing: 0.2px;
 }
 
-.date-center-input {
-  width: 100%;
-  min-height: 44px;
-  border-radius: 999px;
-  text-align: center;
-  font-weight: 600;
-  letter-spacing: 0.2px;
-  cursor: pointer;
-}
-
 .date-picker-hidden {
   position: absolute;
   left: -9999px;
