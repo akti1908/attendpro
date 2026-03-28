@@ -7,6 +7,7 @@ export function renderStatistics(root, ctx) {
   const defaultMonth = normalizeMonthValue(
     ctx.state.salaryMonth || String(ctx.state.selectedDate || "").slice(0, 7) || String(ctx.getTodayISO() || "").slice(0, 7)
   );
+  const monthlySalesMonthLabel = formatMonthLabel(stats.monthlySalesMonthISO);
   const groupOptions = groups.length
     ? groups.map((group) => `<option value="${escapeAttr(group.id)}">${escapeHtml(group.name || "Группа")}</option>`).join("")
     : `<option value="">Групп нет</option>`;
@@ -18,6 +19,7 @@ export function renderStatistics(root, ctx) {
         <div class="stat-card"><span class="muted">Посещаемость %</span><strong>${stats.attendancePercent}%</strong></div>
         <div class="stat-card"><span class="muted">Пропуски %</span><strong>${stats.missesPercent}%</strong></div>
         <div class="stat-card"><span class="muted">Продления пакетов</span><strong>${stats.totalPackageRenewals}</strong></div>
+        <div class="stat-card"><span class="muted">\u041e\u0431\u0449\u0430\u044f \u0441\u0443\u043c\u043c\u0430 \u043f\u0440\u043e\u0434\u0430\u0436 \u0437\u0430 ${monthlySalesMonthLabel}</span><strong>${formatMoney(stats.monthlySalesTotal)} \u0441\u043e\u043c</strong></div>
         <div class="stat-card"><span class="muted">Средний доход за занятие</span><strong>${formatMoney(stats.avgIncomePerSession)} сом</strong></div>
         <div class="stat-card"><span class="muted">Посещений</span><strong>${stats.totalVisits}</strong></div>
         <div class="stat-card"><span class="muted">Пропусков</span><strong>${stats.totalMisses}</strong></div>
@@ -86,6 +88,13 @@ function normalizeMonthValue(value) {
 
 function formatMoney(value) {
   return Math.round(Number(value || 0)).toLocaleString("ru-RU");
+}
+
+function formatMonthLabel(monthISO) {
+  const raw = normalizeMonthValue(monthISO);
+  if (!raw) return "\u043c\u0435\u0441\u044f\u0446";
+  const [year, month] = raw.split("-");
+  return `${month}.${year}`;
 }
 
 function escapeAttr(value) {

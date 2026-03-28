@@ -4074,12 +4074,14 @@ function getStatistics() {
   const cards = [];
   const students = getStudentsForUser();
   const groups = getGroupsForUser();
+  const monthlySalesMonthISO = ensureMonthISO(state.salaryMonth, getTodayISO().slice(0, 7));
 
   let totalVisits = 0;
   let totalMisses = 0;
   let totalPurchasedTrainings = 0;
   let totalRemainingTrainings = 0;
   let totalPackageRenewals = 0;
+  let monthlySalesTotal = 0;
   let totalIncome = 0;
   let paidSessionCount = 0;
 
@@ -4107,8 +4109,16 @@ function getStatistics() {
       }
     });
 
-    const purchasedTrainings = (student.packagesHistory || []).reduce((sum, item) => sum + Number(item.count || 0), 0);
-    const renewals = Math.max(0, (student.packagesHistory || []).length - 1);
+    const packagesHistory = Array.isArray(student.packagesHistory) ? student.packagesHistory : [];
+    const purchasedTrainings = packagesHistory.reduce((sum, item) => sum + Number(item.count || 0), 0);
+    const renewals = Math.max(0, packagesHistory.length - 1);
+    const monthlySales = packagesHistory.reduce((sum, item) => {
+      const purchaseDateISO = getPackagePurchaseDateISO(item, student.createdAt || getTodayISO());
+      if (!isDateInMonth(purchaseDateISO, monthlySalesMonthISO)) {
+        return sum;
+      }
+      return sum + getPackageSaleAmount(item, student.trainingType, student.participants);
+    }, 0);
     const income = roundMoney(incomeRaw);
 
     totalVisits += visits;
@@ -4116,6 +4126,7 @@ function getStatistics() {
     totalPurchasedTrainings += purchasedTrainings;
     totalRemainingTrainings += Number(student.remainingTrainings || 0);
     totalPackageRenewals += renewals;
+    monthlySalesTotal += monthlySales;
     totalIncome += income;
     paidSessionCount += visits;
 
@@ -4129,6 +4140,7 @@ function getStatistics() {
       purchasedTrainings,
       remainingTrainings: Number(student.remainingTrainings || 0),
       renewals,
+      monthlySales: roundMoney(monthlySales),
       income,
       lastVisitDate: lastMarkedDate
     });
@@ -4187,12 +4199,53 @@ function getStatistics() {
     totalPurchasedTrainings,
     totalRemainingTrainings,
     totalPackageRenewals,
+    monthlySalesMonthISO,
+    monthlySalesTotal: roundMoney(monthlySalesTotal),
     avgIncomePerSession,
     attendancePercent,
     missesPercent,
     totalIncome: roundMoney(totalIncome),
     cards
   };
+}
+
+function getPackagePurchaseDateISO(packageItem, fallbackDateISO) {
+  const rawDate = String(packageItem?.purchasedAt || "").trim();
+  if (!rawDate) {
+    return ensureISODate(fallbackDateISO, getTodayISO());
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) {
+    return rawDate;
+  }
+  const parsed = new Date(rawDate);
+  if (Number.isNaN(parsed.getTime())) {
+    return ensureISODate(fallbackDateISO, getTodayISO());
+  }
+  return toISODate(parsed);
+}
+
+function getPackageSaleAmount(packageItem, trainingType, participants) {
+  const normalizedType = normalizeTrainingType(trainingType);
+
+  if (normalizedType === "split") {
+    const participantsCount = Math.max(2, Number(Array.isArray(participants) ? participants.length : 2));
+    const pricePerPerson = Number(packageItem?.pricePerPerson || 0);
+    return roundMoney(pricePerPerson * participantsCount);
+  }
+
+  if (normalizedType === "mini_group") {
+    const participantsCount = Math.max(
+      MINI_GROUP_MIN_PARTICIPANTS,
+      Math.min(
+        MINI_GROUP_MAX_PARTICIPANTS,
+        Number(packageItem?.participantsCount || (Array.isArray(participants) ? participants.length : MINI_GROUP_MIN_PARTICIPANTS))
+      )
+    );
+    const pricePerPerson = Number(packageItem?.pricePerPerson || 0);
+    return roundMoney(pricePerPerson * participantsCount);
+  }
+
+  return roundMoney(Number(packageItem?.totalPrice || 0));
 }
 
 function exportStatisticsCSV() {
@@ -4202,6 +4255,7 @@ function exportStatisticsCSV() {
     `Посещаемость %;${stats.attendancePercent}`,
     `Пропуски %;${stats.missesPercent}`,
     `Продления пакетов;${stats.totalPackageRenewals}`,
+    `\u041e\u0431\u0449\u0430\u044f \u0441\u0443\u043c\u043c\u0430 \u043f\u0440\u043e\u0434\u0430\u0436 \u0437\u0430 \u043c\u0435\u0441\u044f\u0446 (${stats.monthlySalesMonthISO});${stats.monthlySalesTotal}`,
     `Средний доход за занятие;${stats.avgIncomePerSession}`,
     `Всего посещений;${stats.totalVisits}`,
     `Всего пропусков;${stats.totalMisses}`,
