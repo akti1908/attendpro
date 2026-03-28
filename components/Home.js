@@ -8,21 +8,13 @@ export function renderHome(root, ctx) {
   const editAllowed = ctx.actions.isEditingAllowedForSelectedDate();
   const showEditToggle = selectedDate !== todayISO;
   const sessions = ctx.getSessionsForDate(selectedDate);
-  const selectedWeekDay = getWeekDayLabel(selectedDate, ctx);
-  const selectedDateLabel = selectedWeekDay
-    ? `${ctx.formatDate(selectedDate)} (${selectedWeekDay})`
-    : ctx.formatDate(selectedDate);
-
   root.innerHTML = `
     <div class="journal-swipe-surface" data-journal-swipe-surface="1">
       <section class="card journal-card">
         <h2 class="section-title">Журнал посещаемости</h2>
         <div class="date-toolbar">
           <button id="prev-day" class="btn small-btn day-arrow-btn" aria-label="Предыдущий день" title="Предыдущий день">◀</button>
-          <div class="date-input-wrap">
-            <button id="selected-date-display" class="btn small-btn date-center-btn" type="button">${selectedDateLabel}</button>
-            <input id="selected-date" class="date-input-overlay" type="date" value="${selectedDate}" aria-label="Выбрать дату" />
-          </div>
+          <input id="selected-date" class="date-center-input" type="date" value="${selectedDate}" aria-label="Выбрать дату" />
           <button id="next-day" class="btn small-btn day-arrow-btn" aria-label="Следующий день" title="Следующий день">▶</button>
         </div>
         ${showEditToggle
@@ -63,7 +55,7 @@ export function renderHome(root, ctx) {
     ctx.actions.shiftSelectedDate(1);
   });
 
-  root.querySelector("#selected-date").addEventListener("change", (event) => {
+  root.querySelector("#selected-date")?.addEventListener("change", (event) => {
     ctx.actions.setSelectedDate(event.currentTarget.value);
   });
 
@@ -158,19 +150,6 @@ export function renderHome(root, ctx) {
       sendTodayReportButton.disabled = false;
     }
   });
-}
-
-function getWeekDayLabel(dateISO, ctx) {
-  const parts = String(dateISO || "").split("-").map(Number);
-  if (parts.length !== 3 || parts.some((part) => !Number.isInteger(part))) return "";
-  const [year, month, day] = parts;
-  const date = new Date(year, month - 1, day);
-  if (Number.isNaN(date.getTime())) return "";
-
-  if (typeof ctx.dayLabel === "function") {
-    return String(ctx.dayLabel(date.getDay()) || "").trim();
-  }
-  return "";
 }
 
 function bindJournalSwipeNavigation(root, ctx) {
