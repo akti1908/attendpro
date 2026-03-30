@@ -150,15 +150,15 @@ export function renderHome(root, ctx) {
     });
   });
 
-  dayList.querySelectorAll("[data-action='group-attendance']").forEach((input) => {
-    input.addEventListener("change", () => {
-      if (!editAllowed || !input.checked) return;
+  dayList.querySelectorAll("[data-action='group-attendance']").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (!editAllowed) return;
 
       ctx.actions.setGroupAttendance(
-        input.dataset.groupId,
-        input.dataset.sessionId,
-        input.dataset.studentId,
-        input.dataset.value
+        button.dataset.groupId,
+        button.dataset.sessionId,
+        button.dataset.studentId,
+        button.dataset.value
       );
     });
   });
