@@ -551,8 +551,8 @@ input[type="radio"] {
 }
 
 .session.group {
-  border-color: rgba(34, 197, 94, 0.22);
-  background: linear-gradient(0deg, rgba(34, 197, 94, 0.08), rgba(34, 197, 94, 0.08)), var(--surface-soft);
+  border-color: rgba(59, 130, 246, 0.25);
+  background: linear-gradient(0deg, rgba(59, 130, 246, 0.1), rgba(59, 130, 246, 0.1)), var(--surface-soft);
 }
 
 .session-head {
