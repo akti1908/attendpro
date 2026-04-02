@@ -75,7 +75,7 @@ function renderGroupSession(entry, editable) {
     .filter((student) => session.attendance[student.id] === GROUP_PRESENT_STATUS)
     .map((student) => student.name);
   const absentNames = entry.students
-    .filter((student) => session.attendance[student.id] !== GROUP_PRESENT_STATUS)
+    .filter((student) => session.attendance[student.id] === GROUP_ABSENT_STATUS)
     .map((student) => student.name);
 
   const summaryBlock = allMarked ? renderGroupAttendanceSummary(presentNames, absentNames) : "";
@@ -84,10 +84,12 @@ function renderGroupSession(entry, editable) {
     .map((student) => {
       const currentStatus = session.attendance[student.id] || "";
       const isPresent = currentStatus === GROUP_PRESENT_STATUS;
-      const isAbsent = currentStatus !== GROUP_PRESENT_STATUS;
+      const isAbsent = currentStatus === GROUP_ABSENT_STATUS;
       const rowStateClass = isPresent
         ? "group-student-row-present"
-        : "group-student-row-absent";
+        : isAbsent
+          ? "group-student-row-absent"
+          : "";
 
       return `
         <div class="group-student-row ${rowStateClass}">
