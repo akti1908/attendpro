@@ -75,7 +75,7 @@ function renderGroupSession(entry, editable) {
     .filter((student) => session.attendance[student.id] === GROUP_PRESENT_STATUS)
     .map((student) => student.name);
   const absentNames = entry.students
-    .filter((student) => session.attendance[student.id] === GROUP_ABSENT_STATUS)
+    .filter((student) => session.attendance[student.id] !== GROUP_PRESENT_STATUS)
     .map((student) => student.name);
 
   const summaryBlock = allMarked ? renderGroupAttendanceSummary(presentNames, absentNames) : "";
@@ -84,12 +84,10 @@ function renderGroupSession(entry, editable) {
     .map((student) => {
       const currentStatus = session.attendance[student.id] || "";
       const isPresent = currentStatus === GROUP_PRESENT_STATUS;
-      const isAbsent = currentStatus === GROUP_ABSENT_STATUS;
+      const isAbsent = currentStatus !== GROUP_PRESENT_STATUS;
       const rowStateClass = isPresent
         ? "group-student-row-present"
-        : isAbsent
-          ? "group-student-row-absent"
-          : "";
+        : "group-student-row-absent";
 
       return `
         <div class="group-student-row ${rowStateClass}">
@@ -147,16 +145,19 @@ function renderGroupSession(entry, editable) {
 }
 
 function renderGroupAttendanceSummary(presentNames, absentNames) {
+  const presentCount = Array.isArray(presentNames) ? presentNames.length : 0;
+  const absentCount = Array.isArray(absentNames) ? absentNames.length : 0;
+
   return `
     <section class="group-attendance-summary" aria-label="Итог посещаемости группы">
       <div class="group-summary-section group-summary-present">
-        <h4 class="group-summary-title">Присутствовали</h4>
+        <h4 class="group-summary-title">Присутствовали <span class="group-summary-count">${presentCount}</span></h4>
         <ul class="group-summary-list">
           ${renderGroupSummaryList(presentNames)}
         </ul>
       </div>
       <div class="group-summary-section group-summary-absent">
-        <h4 class="group-summary-title">Отсутствовали</h4>
+        <h4 class="group-summary-title">Отсутствовали <span class="group-summary-count">${absentCount}</span></h4>
         <ul class="group-summary-list">
           ${renderGroupSummaryList(absentNames)}
         </ul>

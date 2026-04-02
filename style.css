@@ -903,6 +903,23 @@ input[type="radio"] {
   margin: 0 0 6px;
   font-size: 0.82rem;
   letter-spacing: 0.2px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.group-summary-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  background: rgba(148, 163, 184, 0.16);
 }
 
 .group-summary-list {
