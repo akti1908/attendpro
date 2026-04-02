@@ -246,6 +246,12 @@ async function runAutoReportScheduler(context = {}) {
         } else {
           sent += 1;
         }
+
+        await persistAutoReportLastSentSlot({
+          account,
+          appState,
+          slotKey
+        });
       } catch (error) {
         failed += 1;
         console.error(`Auto-report failed for ${account?.email || "unknown"}:`, error?.message || error);
@@ -453,6 +459,71 @@ async function listCloudAccounts() {
   return Array.isArray(rows) ? rows : [];
 }
 
+async function persistAutoReportLastSentSlot(payload) {
+  const account = payload?.account || null;
+  const slotKey = normalizeSlotKey(payload?.slotKey);
+  if (!account || !slotKey || !hasSupabaseAdminConfig()) return false;
+
+  const currentState = normalizeObject(payload?.appState);
+  const nextState = buildNextAppStateWithLastSentSlot(currentState, slotKey);
+  if (!nextState) return false;
+
+  const accountId = String(account?.id || "").trim();
+  const accountEmail = String(account?.email || "").trim().toLowerCase();
+  if (!accountId && !accountEmail) return false;
+
+  const filters = [];
+  if (accountId) {
+    filters.push(`id=eq.${encodeURIComponent(accountId)}`);
+  } else {
+    filters.push(`email=eq.${encodeURIComponent(accountEmail)}`);
+  }
+  const updatedAt = String(account?.updated_at || "").trim();
+  if (updatedAt) {
+    filters.push(`updated_at=eq.${encodeURIComponent(updatedAt)}`);
+  }
+
+  try {
+    const rows = await supabaseFetch(`/rest/v1/${SUPABASE_TABLE}?${filters.join("&")}`, {
+      method: "PATCH",
+      headers: {
+        Prefer: "return=representation"
+      },
+      body: JSON.stringify({
+        app_state: nextState,
+        updated_at: new Date().toISOString()
+      })
+    });
+
+    return Array.isArray(rows) && rows.length > 0;
+  } catch (error) {
+    console.error("Auto-report slot update failed:", error?.message || error);
+    return false;
+  }
+}
+
+function buildNextAppStateWithLastSentSlot(appState, slotKey) {
+  const normalizedSlotKey = normalizeSlotKey(slotKey);
+  if (!normalizedSlotKey) return null;
+
+  const base = normalizeObject(appState);
+  const settings = normalizeObject(base.settings);
+  const autoReport = normalizeObject(settings.autoReport);
+  const currentSlot = normalizeSlotKey(autoReport.lastSentSlotKey);
+  if (currentSlot === normalizedSlotKey) return null;
+
+  return {
+    ...base,
+    settings: {
+      ...settings,
+      autoReport: {
+        ...autoReport,
+        lastSentSlotKey: normalizedSlotKey
+      }
+    }
+  };
+}
+
 async function supabaseFetch(pathname, options = {}) {
   if (!hasSupabaseAdminConfig()) {
     throw new Error("Supabase service role is not configured.");
@@ -581,6 +652,7 @@ function buildAttendanceReportText(payload) {
   let presentCount = 0;
   let absentCount = 0;
   let transferredCount = 0;
+  let unmarkedCount = 0;
   let totalStudents = 0;
 
   const personalRows = sessions.filter((entry) => entry.type === "personal");
@@ -593,6 +665,7 @@ function buildAttendanceReportText(payload) {
       if (statusInfo.bucket === "present") presentCount += participantsCount;
       if (statusInfo.bucket === "absent") absentCount += participantsCount;
       if (statusInfo.bucket === "transferred") transferredCount += participantsCount;
+      if (statusInfo.bucket === "unmarked") unmarkedCount += participantsCount;
       lines.push(`- ${entry.data.time} ${entry.studentName} ${statusInfo.label}`);
     });
   } else {
@@ -618,6 +691,7 @@ function buildAttendanceReportText(payload) {
         if (statusInfo.bucket === "present") presentCount += 1;
         if (statusInfo.bucket === "absent") absentCount += 1;
         if (statusInfo.bucket === "transferred") transferredCount += 1;
+        if (statusInfo.bucket === "unmarked") unmarkedCount += 1;
         lines.push(`  - ${student.name} ${statusInfo.label}`);
       });
     });
@@ -627,6 +701,7 @@ function buildAttendanceReportText(payload) {
 
   lines.push("");
   lines.push("Статистика:");
+  lines.push(`Без отметки: ${unmarkedCount}`);
   lines.push(`Перенесено: ${transferredCount}`);
   lines.push(`Не пришел: ${absentCount}`);
   lines.push(`Пришел: ${presentCount}`);
@@ -639,14 +714,16 @@ function mapServerPersonalStatusToReport(statusValue) {
   const status = String(statusValue || "").trim();
   if (status === "пришел") return { label: "✅", bucket: "present" };
   if (status === "не пришел") return { label: "❌", bucket: "absent" };
-  return { label: "Перенесено", bucket: "transferred" };
+  if (status === "перенесено") return { label: "Перенесено", bucket: "transferred" };
+  if (!status || status === "запланировано") return { label: "запланировано", bucket: "unmarked" };
+  return { label: "без отметки", bucket: "unmarked" };
 }
 
 function mapServerGroupStatusToReport(statusValue) {
   const status = String(statusValue || "").trim();
   if (status === "присутствовал") return { label: "✅", bucket: "present" };
   if (status === "отсутствовал") return { label: "❌", bucket: "absent" };
-  return { label: "Перенесено", bucket: "transferred" };
+  return { label: "без отметки", bucket: "unmarked" };
 }
 
 function getServerPersonalParticipantsCount(entry) {

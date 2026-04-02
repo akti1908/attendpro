@@ -498,6 +498,13 @@ async function sendTelegramReportViaBackend(payload) {
   const telegramConfig = payload.telegramConfig;
   const idempotencyKey = String(payload.idempotencyKey || "").trim();
   const chatId = normalizeTelegramChatId(payload?.chatId);
+  const backendSendUrl = buildTelegramBackendSendUrl(telegramConfig.apiBaseUrl);
+  if (!backendSendUrl) {
+    return {
+      ok: false,
+      message: "Некорректный backend URL для Telegram отчета."
+    };
+  }
   const timeoutMs = 12000;
   const controller = typeof AbortController === "function" ? new AbortController() : null;
   const timeoutId = controller
@@ -505,7 +512,7 @@ async function sendTelegramReportViaBackend(payload) {
     : null;
 
   try {
-    const response = await fetch(`${telegramConfig.apiBaseUrl}/api/telegram/send-report`, {
+    const response = await fetch(backendSendUrl, {
       method: "POST",
       ...(controller ? { signal: controller.signal } : {}),
       headers: {
@@ -661,6 +668,13 @@ function getTelegramBackendTransportState(telegramConfig) {
     };
   }
 
+  if (!/^https?:\/\//i.test(apiBaseUrl)) {
+    return {
+      canUseBackend: false,
+      reason: "Некорректный backend URL. Укажите полный адрес, например: https://api.example.com"
+    };
+  }
+
   if (isMixedContentBlocked(apiBaseUrl)) {
     return {
       canUseBackend: false,
@@ -670,6 +684,13 @@ function getTelegramBackendTransportState(telegramConfig) {
 
   const currentHost = String(window.location.hostname || "").toLowerCase();
   const targetHost = parseHostname(apiBaseUrl);
+  if (!targetHost) {
+    return {
+      canUseBackend: false,
+      reason: "Некорректный backend URL. Проверьте ATTENDPRO_TELEGRAM.apiBaseUrl."
+    };
+  }
+
   if (targetHost && isLocalhostOrigin(targetHost) && !isLocalhostOrigin(currentHost)) {
     return {
       canUseBackend: false,
@@ -687,11 +708,32 @@ function resolveTelegramApiBaseUrl(value) {
   const explicitUrl = String(value || "")
     .trim()
     .replace(/\/+$/, "");
-  if (explicitUrl) return explicitUrl;
+  if (explicitUrl && !isTelegramApiBasePlaceholder(explicitUrl)) return explicitUrl;
   if (window.location.protocol.startsWith("http") && isLocalhostOrigin(window.location.hostname)) {
     return window.location.origin.replace(/\/+$/, "");
   }
   return "";
+}
+
+function isTelegramApiBasePlaceholder(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return false;
+  return normalized.includes("your_backend_base_url") || normalized.includes("ваш-бэкенд-домен");
+}
+
+function buildTelegramBackendSendUrl(apiBaseUrl) {
+  const base = String(apiBaseUrl || "").trim().replace(/\/+$/, "");
+  if (!base) return "";
+  if (/\/api\/telegram\/send-report$/i.test(base)) {
+    return base;
+  }
+  if (/\/api\/telegram$/i.test(base)) {
+    return `${base}/send-report`;
+  }
+  if (/\/api$/i.test(base)) {
+    return `${base}/telegram/send-report`;
+  }
+  return `${base}/api/telegram/send-report`;
 }
 
 function normalizeTelegramSchedulerMode(value) {
@@ -2483,6 +2525,7 @@ function buildTodayAttendanceReportText(dateISO) {
   let presentCount = 0;
   let absentCount = 0;
   let transferredCount = 0;
+  let unmarkedCount = 0;
   let totalStudents = 0;
 
   const personalRows = sessions.filter((entry) => entry.type === "personal");
@@ -2495,6 +2538,7 @@ function buildTodayAttendanceReportText(dateISO) {
       if (statusInfo.bucket === "present") presentCount += participantsCount;
       if (statusInfo.bucket === "absent") absentCount += participantsCount;
       if (statusInfo.bucket === "transferred") transferredCount += participantsCount;
+      if (statusInfo.bucket === "unmarked") unmarkedCount += participantsCount;
       lines.push(`- ${entry.data.time} ${entry.studentName} ${statusInfo.label}`);
     });
   } else {
@@ -2520,6 +2564,7 @@ function buildTodayAttendanceReportText(dateISO) {
         if (statusInfo.bucket === "present") presentCount += 1;
         if (statusInfo.bucket === "absent") absentCount += 1;
         if (statusInfo.bucket === "transferred") transferredCount += 1;
+        if (statusInfo.bucket === "unmarked") unmarkedCount += 1;
         lines.push(`  - ${student.name} ${statusInfo.label}`);
       });
     });
@@ -2529,6 +2574,7 @@ function buildTodayAttendanceReportText(dateISO) {
 
   lines.push("");
   lines.push("Статистика:");
+  lines.push(`Без отметки: ${unmarkedCount}`);
   lines.push(`Перенесено: ${transferredCount}`);
   lines.push(`Не пришел: ${absentCount}`);
   lines.push(`Пришел: ${presentCount}`);
@@ -2541,14 +2587,16 @@ function mapPersonalStatusToReport(statusValue) {
   const status = String(statusValue || "").trim();
   if (status === "пришел") return { label: "✅", bucket: "present" };
   if (status === "не пришел") return { label: "❌", bucket: "absent" };
-  return { label: "Перенесено", bucket: "transferred" };
+  if (status === "перенесено") return { label: "Перенесено", bucket: "transferred" };
+  if (!status || status === "запланировано") return { label: "запланировано", bucket: "unmarked" };
+  return { label: "без отметки", bucket: "unmarked" };
 }
 
 function mapGroupStatusToReport(statusValue) {
   const status = String(statusValue || "").trim();
   if (status === "присутствовал") return { label: "✅", bucket: "present" };
   if (status === "отсутствовал") return { label: "❌", bucket: "absent" };
-  return { label: "Перенесено", bucket: "transferred" };
+  return { label: "без отметки", bucket: "unmarked" };
 }
 
 function getPersonalReportParticipantsCount(entry) {
