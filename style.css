@@ -592,14 +592,34 @@ input[type="radio"] {
   color: #fee2e2;
 }
 
+.status-transfer {
+  background: rgba(59, 130, 246, 0.24);
+  color: #dbeafe;
+}
+
+.status-deleted {
+  background: rgba(100, 116, 139, 0.24);
+  color: #e2e8f0;
+}
+
 .session-marked {
   border-color: rgba(59, 130, 246, 0.4);
+}
+
+.session-deleted {
+  border-style: dashed;
+  opacity: 0.92;
 }
 
 .marked-note {
   margin-top: 6px;
   font-size: 0.8rem;
   color: var(--muted);
+}
+
+.transfer-note {
+  margin-top: 6px;
+  font-size: 0.82rem;
 }
 
 .session-editing {
@@ -616,6 +636,45 @@ input[type="radio"] {
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   gap: 8px;
   margin-top: 9px;
+}
+
+.reschedule-wrap {
+  display: grid;
+  gap: 8px;
+}
+
+.transfer-menu {
+  margin-top: 0;
+}
+
+.transfer-date-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+
+.transfer-date-panel input[type="date"] {
+  min-height: 36px;
+}
+
+.session-history {
+  margin-top: 8px;
+  border-top: 1px dashed var(--border);
+  padding-top: 8px;
+}
+
+.session-history summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.session-history ul {
+  margin: 8px 0 0;
+  padding-left: 16px;
+  display: grid;
+  gap: 4px;
+  font-size: 0.78rem;
 }
 
 .package-controls {

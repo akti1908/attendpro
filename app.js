@@ -1291,7 +1291,11 @@ function buildContext() {
       markPersonalSession,
       forceSetPersonalStatus,
       reschedulePersonalSession,
+      deletePersonalSessionRecord,
+      restorePersonalSessionRecord,
       setGroupAttendance,
+      deleteGroupSessionRecord,
+      restoreGroupSessionRecord,
       setSalaryMonth,
       closeSalaryMonth,
       reopenSalaryMonth,
@@ -1625,11 +1629,21 @@ function normalizeAuth(rawAuth, users) {
 }
 
 function normalizeStudentSession(rawSession, activePackage, trainingType) {
+  const normalizedDeletedAt = normalizeDateTimeISO(rawSession.deletedAt);
+  const rawStatus = normalizePersonalStatus(rawSession.status);
+  const normalizedStatus = normalizedDeletedAt ? "удалено" : rawStatus;
   return {
     id: String(rawSession.id || createId("session")),
     date: ensureISODate(rawSession.date, getTodayISO()),
     time: sanitizeHourTime(rawSession.time),
-    status: normalizePersonalStatus(rawSession.status),
+    status: normalizedStatus,
+    deletedAt: normalizedDeletedAt || null,
+    deletedPreviousStatus: normalizeDeletedPreviousStatus(rawSession.deletedPreviousStatus, rawStatus),
+    transferToDate: ensureISODate(rawSession.transferToDate, ""),
+    transferToTime: sanitizeHourTime(rawSession.transferToTime || rawSession.time),
+    transferMode: normalizeTransferMode(rawSession.transferMode),
+    sourceSessionId: String(rawSession.sourceSessionId || "").trim(),
+    history: normalizeSessionHistory(rawSession.history),
     coachIncome: Number.isFinite(Number(rawSession.coachIncome))
       ? Number(rawSession.coachIncome)
       : getCoachIncomePerSession(activePackage, trainingType)
@@ -1637,11 +1651,18 @@ function normalizeStudentSession(rawSession, activePackage, trainingType) {
 }
 
 function normalizeGroupSession(rawSession) {
+  const deletedAt = normalizeDateTimeISO(rawSession.deletedAt);
+  const fallbackDeletedAttendance = deletedAt
+    ? (rawSession.deletedAttendance || rawSession.attendance)
+    : rawSession.deletedAttendance;
   return {
     id: String(rawSession.id || createId("gsession")),
     date: ensureISODate(rawSession.date, getTodayISO()),
     time: sanitizeHourTime(rawSession.time),
-    attendance: normalizeAttendanceMap(rawSession.attendance)
+    attendance: normalizeAttendanceMap(rawSession.attendance),
+    deletedAt: deletedAt || null,
+    deletedAttendance: normalizeAttendanceMap(fallbackDeletedAttendance),
+    history: normalizeSessionHistory(rawSession.history)
   };
 }
 
@@ -1660,10 +1681,59 @@ function normalizeAttendanceMap(attendance) {
 
 function normalizePersonalStatus(status) {
   const normalizedStatus = normalizeLegacyText(status);
-  if (normalizedStatus === "пришел" || normalizedStatus === "не пришел" || normalizedStatus === "запланировано") {
+  if (
+    normalizedStatus === "пришел"
+    || normalizedStatus === "не пришел"
+    || normalizedStatus === "запланировано"
+    || normalizedStatus === "перенесено"
+    || normalizedStatus === "удалено"
+  ) {
     return normalizedStatus;
   }
   return "запланировано";
+}
+
+function normalizeDeletedPreviousStatus(status, fallbackStatus = "запланировано") {
+  const normalized = normalizePersonalStatus(status);
+  if (normalized === "удалено") {
+    return normalizePersonalStatus(fallbackStatus);
+  }
+  return normalized;
+}
+
+function normalizeTransferMode(value) {
+  const mode = String(value || "").trim().toLowerCase();
+  if (mode === "date") return "date";
+  return "schedule";
+}
+
+function normalizeDateTimeISO(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return parsed.toISOString();
+}
+
+function normalizeSessionHistory(rawHistory) {
+  if (!Array.isArray(rawHistory)) return [];
+  return rawHistory
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return null;
+      const at = normalizeDateTimeISO(entry.at) || new Date().toISOString();
+      const type = String(entry.type || "event").trim() || "event";
+      const text = String(normalizeLegacyText(entry.text || "")).trim();
+      if (!text) return null;
+      return {
+        id: String(entry.id || createId("h")),
+        at,
+        type,
+        text
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => String(b.at).localeCompare(String(a.at)))
+    .slice(0, 30);
 }
 
 function normalizeParticipants(rawStudent, trainingType) {
@@ -2528,7 +2598,7 @@ function buildTodayAttendanceReportText(dateISO) {
   let unmarkedCount = 0;
   let totalStudents = 0;
 
-  const personalRows = sessions.filter((entry) => entry.type === "personal");
+  const personalRows = sessions.filter((entry) => entry.type === "personal" && !isPersonalSessionDeleted(entry.data));
   lines.push("Ученики:");
   if (personalRows.length) {
     personalRows.forEach((entry) => {
@@ -2547,7 +2617,7 @@ function buildTodayAttendanceReportText(dateISO) {
 
   lines.push("");
   lines.push("Группы:");
-  const groupRows = sessions.filter((entry) => entry.type === "group");
+  const groupRows = sessions.filter((entry) => entry.type === "group" && !isGroupSessionDeleted(entry.data));
   if (groupRows.length) {
     groupRows.forEach((entry) => {
       lines.push(`- ${entry.data.time} ${entry.groupName}`);
@@ -2686,6 +2756,68 @@ function sortSessionsByDateTime(sessions) {
 
 function isFinalPersonalStatus(status) {
   return status === "пришел" || status === "не пришел";
+}
+
+function isPersonalSessionDeleted(session) {
+  return Boolean(session && session.deletedAt);
+}
+
+function isGroupSessionDeleted(session) {
+  return Boolean(session && session.deletedAt);
+}
+
+function isTerminalPersonalSession(session) {
+  const status = normalizePersonalStatus(session?.status);
+  if (isPersonalSessionDeleted(session)) return true;
+  if (status === "перенесено") return true;
+  return isFinalPersonalStatus(status);
+}
+
+function appendSessionHistoryEntry(session, type, text) {
+  if (!session || typeof session !== "object") return;
+  const entryText = String(text || "").trim();
+  if (!entryText) return;
+  const current = normalizeSessionHistory(session.history);
+  current.unshift({
+    id: createId("h"),
+    at: new Date().toISOString(),
+    type: String(type || "event").trim() || "event",
+    text: entryText
+  });
+  session.history = current.slice(0, 30);
+}
+
+function markPendingSessionsAsAttendedBeforeDate(student, activationDateISO) {
+  if (!student || !Array.isArray(student.sessions)) return 0;
+  const boundaryDate = ensureISODate(activationDateISO, getTodayISO());
+  let updated = 0;
+
+  student.sessions.forEach((session) => {
+    if (!session || typeof session !== "object") return;
+    if (isPersonalSessionDeleted(session)) return;
+    if (normalizePersonalStatus(session.status) !== "запланировано") return;
+    if (compareISODate(ensureISODate(session.date, boundaryDate), boundaryDate) >= 0) return;
+
+    session.status = "пришел";
+    session.transferToDate = "";
+    session.transferToTime = "";
+    session.transferMode = "schedule";
+    appendSessionHistoryEntry(session, "auto-close", "Автоотметка: пришел (новый пакет)");
+    updated += 1;
+  });
+
+  return updated;
+}
+
+function shouldAffectRemainingTrainings(student, session) {
+  if (!student || !session) return false;
+  const activationDate = normalizeStudentActivationDate(
+    student.activationDate,
+    student.createdAt,
+    getTodayISO()
+  );
+  const sessionDate = ensureISODate(session.date, activationDate);
+  return compareISODate(sessionDate, activationDate) >= 0;
 }
 
 function normalizeEmail(emailValue) {
@@ -2999,7 +3131,7 @@ function rebuildStudentPlannedSessions(student, startDateISO = getTodayISO(), op
   const plannedStatus = normalizePersonalStatus();
   const allSessions = Array.isArray(student.sessions) ? student.sessions : [];
 
-  const finalSessions = [];
+  const terminalSessions = [];
   const pastPlanned = [];
   const futurePlanned = [];
 
@@ -3007,13 +3139,20 @@ function rebuildStudentPlannedSessions(student, startDateISO = getTodayISO(), op
     if (!session || typeof session !== "object") return;
 
     const sessionDate = ensureISODate(session.date, activationDate);
+    const normalizedStatus = normalizePersonalStatus(session.status);
     const normalizedSession = {
       ...session,
-      date: sessionDate
+      date: sessionDate,
+      status: normalizedStatus,
+      history: normalizeSessionHistory(session.history),
+      transferToDate: ensureISODate(session.transferToDate, ""),
+      transferToTime: sanitizeHourTime(session.transferToTime || session.time),
+      deletedAt: normalizeDateTimeISO(session.deletedAt) || null,
+      deletedPreviousStatus: normalizeDeletedPreviousStatus(session.deletedPreviousStatus, normalizedStatus)
     };
 
-    if (isFinalPersonalStatus(session.status)) {
-      finalSessions.push(normalizedSession);
+    if (isTerminalPersonalSession(normalizedSession)) {
+      terminalSessions.push(normalizedSession);
       return;
     }
 
@@ -3036,11 +3175,17 @@ function rebuildStudentPlannedSessions(student, startDateISO = getTodayISO(), op
   sortSessionsByDateTime(futurePlanned);
 
   // Past unresolved sessions also consume package balance.
-  const preservedPastPlanned = pastPlanned.slice(0, targetCount);
+  const preservedPastPlanned = pastPlanned
+    .map((session) => ({
+      ...session,
+      status: plannedStatus,
+      deletedAt: null
+    }))
+    .slice(0, targetCount);
   const remainingFutureSlots = Math.max(0, targetCount - preservedPastPlanned.length);
 
   const preservedPlanned = [];
-  const occupied = new Set([...finalSessions, ...preservedPastPlanned].map((session) => `${session.date}__${session.time}`));
+  const occupied = new Set([...terminalSessions, ...preservedPastPlanned].map((session) => `${session.date}__${session.time}`));
 
   for (const session of futurePlanned) {
     if (preservedPlanned.length >= remainingFutureSlots) break;
@@ -3053,6 +3198,7 @@ function rebuildStudentPlannedSessions(student, startDateISO = getTodayISO(), op
       ...session,
       time: targetTime,
       status: plannedStatus,
+      deletedAt: null,
       coachIncome
     });
     occupied.add(key);
@@ -3071,6 +3217,13 @@ function rebuildStudentPlannedSessions(student, startDateISO = getTodayISO(), op
         date: cursor,
         time: targetTime,
         status: plannedStatus,
+        deletedAt: null,
+        deletedPreviousStatus: "запланировано",
+        transferToDate: "",
+        transferToTime: targetTime,
+        transferMode: "schedule",
+        sourceSessionId: "",
+        history: [],
         coachIncome
       });
       occupied.add(key);
@@ -3079,7 +3232,7 @@ function rebuildStudentPlannedSessions(student, startDateISO = getTodayISO(), op
     guard += 1;
   }
 
-  student.sessions = [...finalSessions, ...preservedPastPlanned, ...preservedPlanned, ...generated];
+  student.sessions = [...terminalSessions, ...preservedPastPlanned, ...preservedPlanned, ...generated];
   sortSessionsByDateTime(student.sessions);
 }
 
@@ -3102,6 +3255,7 @@ function rebuildGroupFutureSessions(group, startDateISO = getTodayISO()) {
   }
 
   const preserved = group.sessions.filter((session) => {
+    if (isGroupSessionDeleted(session)) return true;
     const hasMarks = Object.keys(session.attendance || {}).length > 0;
     if (hasMarks) return true;
     const isPast = compareISODate(session.date, startDateISO) < 0;
@@ -3127,7 +3281,10 @@ function rebuildGroupFutureSessions(group, startDateISO = getTodayISO()) {
         id: createId("gsession"),
         date: cursor,
         time: group.time,
-        attendance: {}
+        attendance: {},
+        deletedAt: null,
+        deletedAttendance: {},
+        history: []
       });
       occupied.add(key);
     }
@@ -3446,6 +3603,8 @@ function addStudentPackage(studentId, payload) {
     alert("Пакет не найден.");
     return;
   }
+
+  markPendingSessionsAsAttendedBeforeDate(student, activationDate);
 
   student.activationDate = activationDate;
   student.scheduleDays = nextScheduleDays;
@@ -3766,14 +3925,24 @@ function markPersonalSession(studentId, sessionId, nextStatus) {
 
   const session = student.sessions.find((item) => item.id === sessionId);
   if (!session) return;
+  if (isPersonalSessionDeleted(session)) return;
   if (session.status !== "запланировано") return;
   if (isDateLocked(session.date)) {
     alert("Месяц этой даты уже закрыт. Редактирование недоступно.");
     return;
   }
 
+  const previousStatus = normalizePersonalStatus(session.status);
   session.status = nextStatus;
-  student.remainingTrainings = Math.max(0, Number(student.remainingTrainings || 0) - 1);
+  session.transferToDate = "";
+  session.transferToTime = "";
+  session.transferMode = "schedule";
+  session.deletedAt = null;
+  session.deletedPreviousStatus = "запланировано";
+  appendSessionHistoryEntry(session, "status", `Отметка изменена: ${previousStatus} -> ${nextStatus}`);
+  if (shouldAffectRemainingTrainings(student, session)) {
+    student.remainingTrainings = Math.max(0, Number(student.remainingTrainings || 0) - 1);
+  }
   saveState({ dataChanged: true });
   renderApp();
 }
@@ -3787,18 +3956,26 @@ function forceSetPersonalStatus(studentId, sessionId, nextStatus) {
 
   const session = student.sessions.find((item) => item.id === sessionId);
   if (!session) return;
+  if (isPersonalSessionDeleted(session)) return;
   if (isDateLocked(session.date)) {
     alert("Месяц этой даты уже закрыт. Редактирование недоступно.");
     return;
   }
 
-  const wasFinal = isFinalPersonalStatus(session.status);
+  const previousStatus = normalizePersonalStatus(session.status);
+  const wasFinal = isFinalPersonalStatus(previousStatus);
   const willBeFinal = isFinalPersonalStatus(nextStatus);
   session.status = nextStatus;
+  if (nextStatus === "пришел" || nextStatus === "не пришел") {
+    session.transferToDate = "";
+    session.transferToTime = "";
+  }
+  appendSessionHistoryEntry(session, "status", `Статус изменен: ${previousStatus} -> ${nextStatus}`);
 
-  if (!wasFinal && willBeFinal) {
+  const affectsRemaining = shouldAffectRemainingTrainings(student, session);
+  if (!wasFinal && willBeFinal && affectsRemaining) {
     student.remainingTrainings = Math.max(0, Number(student.remainingTrainings || 0) - 1);
-  } else if (wasFinal && !willBeFinal) {
+  } else if (wasFinal && !willBeFinal && affectsRemaining) {
     student.remainingTrainings = Math.min(Number(student.totalTrainings), Number(student.remainingTrainings || 0) + 1);
   }
 
@@ -3806,22 +3983,90 @@ function forceSetPersonalStatus(studentId, sessionId, nextStatus) {
   renderApp();
 }
 
-function reschedulePersonalSession(studentId, sessionId) {
+function reschedulePersonalSession(studentId, sessionId, options = {}) {
   const ownerId = getCurrentUserId();
   const student = state.students.find((item) => item.id === studentId && item.ownerId === ownerId);
   if (!student) return;
 
   const session = student.sessions.find((item) => item.id === sessionId);
   if (!session) return;
+  if (isPersonalSessionDeleted(session)) return;
   if (session.status !== "запланировано") return;
   if (isDateLocked(session.date)) {
     alert("Месяц этой даты уже закрыт. Редактирование недоступно.");
     return;
   }
 
-  const nextDate = getNextAvailableDateForStudent(student, session.date, session.id);
-  session.date = nextDate;
-  session.time = getStudentScheduleTimeForDate(student, nextDate);
+  const transferMode = normalizeTransferMode(options?.mode);
+
+  let nextDate = "";
+  let nextTime = "";
+  if (transferMode === "date") {
+    const requestedDate = ensureISODate(String(options?.targetDate || "").trim(), "");
+    if (!requestedDate) {
+      alert("Выберите дату переноса.");
+      return;
+    }
+    const targetDay = parseISODate(requestedDate).getDay();
+    const followsSchedule = Array.isArray(student.scheduleDays) && student.scheduleDays.includes(targetDay);
+    nextDate = requestedDate;
+    nextTime = followsSchedule
+      ? getStudentScheduleTimeForDate(student, requestedDate)
+      : sanitizeHourTime(session.time);
+  } else {
+    nextDate = getNextAvailableDateForStudent(student, session.date, session.id);
+    nextTime = getStudentScheduleTimeForDate(student, nextDate);
+  }
+
+  if (!nextDate) return;
+  if (!nextTime) nextTime = sanitizeHourTime(session.time);
+  if (nextDate === session.date && nextTime === session.time) {
+    alert("Выберите другую дату или время для переноса.");
+    return;
+  }
+
+  const hasConflict = student.sessions.some((item) => {
+    if (!item || item.id === session.id) return false;
+    if (isPersonalSessionDeleted(item)) return false;
+    return item.date === nextDate && item.time === nextTime;
+  });
+  if (hasConflict) {
+    alert("На выбранную дату и время уже есть тренировка. Выберите другую дату.");
+    return;
+  }
+
+  const sourceDate = session.date;
+  const sourceTime = session.time;
+  session.status = "перенесено";
+  session.transferToDate = nextDate;
+  session.transferToTime = nextTime;
+  session.transferMode = transferMode;
+  appendSessionHistoryEntry(
+    session,
+    "reschedule",
+    `Перенесено ${transferMode === "date" ? "на выбранную дату" : "по графику"}: ${formatDate(sourceDate)} ${sourceTime} -> ${formatDate(nextDate)} ${nextTime}`
+  );
+
+  const transferredSession = {
+    id: createId("psession"),
+    date: nextDate,
+    time: nextTime,
+    status: "запланировано",
+    deletedAt: null,
+    deletedPreviousStatus: "запланировано",
+    transferToDate: "",
+    transferToTime: "",
+    transferMode: "schedule",
+    sourceSessionId: session.id,
+    history: [],
+    coachIncome: Number(session.coachIncome || getCoachIncomePerSession(student.activePackage, student.trainingType) || 0)
+  };
+  appendSessionHistoryEntry(
+    transferredSession,
+    "create",
+    `Создано из переноса: ${formatDate(sourceDate)} ${sourceTime}`
+  );
+  student.sessions.push(transferredSession);
   sortSessionsByDateTime(student.sessions);
 
   saveState({ dataChanged: true });
@@ -3839,7 +4084,11 @@ function getNextAvailableDateForStudent(student, currentDateISO, sessionId) {
   while (guard < 3660) {
     const jsDay = parseISODate(cursor).getDay();
     const candidateTime = getStudentScheduleTimeByDay(student, jsDay);
-    const hasConflict = student.sessions.some((item) => item.id !== sessionId && item.date === cursor && item.time === candidateTime);
+    const hasConflict = student.sessions.some((item) => {
+      if (!item || item.id === sessionId) return false;
+      if (isPersonalSessionDeleted(item)) return false;
+      return item.date === cursor && item.time === candidateTime;
+    });
 
     if (student.scheduleDays.includes(jsDay) && !hasConflict) {
       return cursor;
@@ -3852,6 +4101,65 @@ function getNextAvailableDateForStudent(student, currentDateISO, sessionId) {
   return addDaysISO(currentDateISO, 1);
 }
 
+function deletePersonalSessionRecord(studentId, sessionId) {
+  const ownerId = getCurrentUserId();
+  const student = state.students.find((item) => item.id === studentId && item.ownerId === ownerId);
+  if (!student) return;
+
+  const session = student.sessions.find((item) => item.id === sessionId);
+  if (!session) return;
+  if (isPersonalSessionDeleted(session)) return;
+  if (isDateLocked(session.date)) {
+    alert("Месяц этой даты уже закрыт. Редактирование недоступно.");
+    return;
+  }
+
+  const previousStatus = normalizePersonalStatus(session.status);
+  const wasFinal = isFinalPersonalStatus(previousStatus);
+  session.deletedAt = new Date().toISOString();
+  session.deletedPreviousStatus = previousStatus;
+  session.status = "удалено";
+  appendSessionHistoryEntry(session, "delete", `Посещение удалено (было: ${previousStatus})`);
+
+  if (wasFinal && shouldAffectRemainingTrainings(student, session)) {
+    student.remainingTrainings = Math.min(
+      Number(student.totalTrainings || 0),
+      Number(student.remainingTrainings || 0) + 1
+    );
+  }
+
+  saveState({ dataChanged: true });
+  renderApp();
+}
+
+function restorePersonalSessionRecord(studentId, sessionId) {
+  const ownerId = getCurrentUserId();
+  const student = state.students.find((item) => item.id === studentId && item.ownerId === ownerId);
+  if (!student) return;
+
+  const session = student.sessions.find((item) => item.id === sessionId);
+  if (!session) return;
+  if (!isPersonalSessionDeleted(session)) return;
+  if (isDateLocked(session.date)) {
+    alert("Месяц этой даты уже закрыт. Редактирование недоступно.");
+    return;
+  }
+
+  const restoredStatus = normalizeDeletedPreviousStatus(session.deletedPreviousStatus, "запланировано");
+  const wasFinal = isFinalPersonalStatus(restoredStatus);
+  session.status = restoredStatus;
+  session.deletedAt = null;
+  session.deletedPreviousStatus = "запланировано";
+  appendSessionHistoryEntry(session, "restore", `Посещение восстановлено: ${restoredStatus}`);
+
+  if (wasFinal && shouldAffectRemainingTrainings(student, session)) {
+    student.remainingTrainings = Math.max(0, Number(student.remainingTrainings || 0) - 1);
+  }
+
+  saveState({ dataChanged: true });
+  renderApp();
+}
+
 function setGroupAttendance(groupId, sessionId, studentId, status) {
   if (status !== "присутствовал" && status !== "отсутствовал") return;
 
@@ -3861,6 +4169,7 @@ function setGroupAttendance(groupId, sessionId, studentId, status) {
 
   const session = group.sessions.find((item) => item.id === sessionId);
   if (!session) return;
+  if (isGroupSessionDeleted(session)) return;
   const studentExists = group.students.some((student) => student.id === studentId);
   if (!studentExists) return;
   if (isDateLocked(session.date)) {
@@ -3868,12 +4177,62 @@ function setGroupAttendance(groupId, sessionId, studentId, status) {
     return;
   }
 
-  const scrollState = captureHomeScrollState();
   session.attendance = session.attendance || {};
+  const previousStatus = String(session.attendance[studentId] || "").trim();
+  if (previousStatus === status) return;
+  const scrollState = captureHomeScrollState();
   session.attendance[studentId] = status;
+  const studentName = group.students.find((student) => student.id === studentId)?.name || "Ученик";
+  appendSessionHistoryEntry(
+    session,
+    "attendance",
+    `Отметка группы: ${studentName} -> ${status}`
+  );
   saveState({ dataChanged: true });
   renderApp();
   restoreHomeScrollState(scrollState);
+}
+
+function deleteGroupSessionRecord(groupId, sessionId) {
+  const ownerId = getCurrentUserId();
+  const group = state.groups.find((item) => item.id === groupId && item.ownerId === ownerId);
+  if (!group) return;
+
+  const session = group.sessions.find((item) => item.id === sessionId);
+  if (!session) return;
+  if (isGroupSessionDeleted(session)) return;
+  if (isDateLocked(session.date)) {
+    alert("Месяц этой даты уже закрыт. Редактирование недоступно.");
+    return;
+  }
+
+  session.deletedAt = new Date().toISOString();
+  session.deletedAttendance = normalizeAttendanceMap(session.attendance);
+  session.attendance = {};
+  appendSessionHistoryEntry(session, "delete", "Групповое посещение удалено");
+  saveState({ dataChanged: true });
+  renderApp();
+}
+
+function restoreGroupSessionRecord(groupId, sessionId) {
+  const ownerId = getCurrentUserId();
+  const group = state.groups.find((item) => item.id === groupId && item.ownerId === ownerId);
+  if (!group) return;
+
+  const session = group.sessions.find((item) => item.id === sessionId);
+  if (!session) return;
+  if (!isGroupSessionDeleted(session)) return;
+  if (isDateLocked(session.date)) {
+    alert("Месяц этой даты уже закрыт. Редактирование недоступно.");
+    return;
+  }
+
+  session.attendance = normalizeAttendanceMap(session.deletedAttendance);
+  session.deletedAttendance = {};
+  session.deletedAt = null;
+  appendSessionHistoryEntry(session, "restore", "Групповое посещение восстановлено");
+  saveState({ dataChanged: true });
+  renderApp();
 }
 
 function setSalaryMonth(monthISO) {
@@ -3960,7 +4319,15 @@ function getSessionsByDate(dateISO, sessionsIndex = null) {
       return {
         type: "personal",
         label: `${labelPrefix}${item.studentName}`,
-        status: item.data.status
+        status: isPersonalSessionDeleted(item.data) ? "удалено" : item.data.status
+      };
+    }
+
+    if (isGroupSessionDeleted(item.data)) {
+      return {
+        type: "group",
+        label: item.groupName,
+        status: "удалено"
       };
     }
 
@@ -4045,6 +4412,7 @@ function buildSalaryReport(monthISO) {
     let attended = 0;
     let incomeRaw = 0;
     (Array.isArray(student.sessions) ? student.sessions : []).forEach((session) => {
+      if (isPersonalSessionDeleted(session)) return;
       if (session.status !== "пришел") return;
       if (!isDateInMonth(session.date, month)) return;
       attended += 1;
@@ -4187,6 +4555,7 @@ function getStatistics() {
     let incomeRaw = 0;
     let lastMarkedDate = null;
     (Array.isArray(student.sessions) ? student.sessions : []).forEach((session) => {
+      if (isPersonalSessionDeleted(session)) return;
       const status = session.status;
       if (status === "пришел") {
         visits += 1;
@@ -4248,6 +4617,7 @@ function getStatistics() {
     let lastDate = null;
 
     (Array.isArray(group.sessions) ? group.sessions : []).forEach((session) => {
+      if (isGroupSessionDeleted(session)) return;
       const attendance = session.attendance || {};
       let markedInSession = false;
       Object.values(attendance).forEach((status) => {
@@ -4407,6 +4777,7 @@ function exportGroupAttendanceMonthlyReport(groupId, monthISO) {
 
   const targetMonth = ensureMonthISO(monthISO, getTodayISO().slice(0, 7));
   const sessions = (Array.isArray(group.sessions) ? group.sessions : [])
+    .filter((session) => !isGroupSessionDeleted(session))
     .filter((session) => isDateInMonth(session.date, targetMonth))
     .slice()
     .sort((a, b) => `${a.date}__${a.time}`.localeCompare(`${b.date}__${b.time}`));

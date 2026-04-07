@@ -744,6 +744,7 @@ function getSessionsForDate(appState, dateISO) {
     const sessions = Array.isArray(student?.sessions) ? student.sessions : [];
     sessions.forEach((session) => {
       if (String(session?.date || "") !== dateISO) return;
+      if (session?.deletedAt) return;
       rows.push({
         type: "personal",
         studentName: String(student?.name || "Ученик").trim(),
@@ -761,6 +762,7 @@ function getSessionsForDate(appState, dateISO) {
     const sessions = Array.isArray(group?.sessions) ? group.sessions : [];
     sessions.forEach((session) => {
       if (String(session?.date || "") !== dateISO) return;
+      if (session?.deletedAt) return;
       rows.push({
         type: "group",
         groupName: String(group?.name || "Группа").trim(),

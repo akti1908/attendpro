@@ -301,11 +301,11 @@ export function renderStudentsManager(root, ctx) {
     const isSplit = type === "split";
     const isMiniGroup = type === "mini_group";
 
-    primaryNameRow?.classList.toggle("is-hidden", isMiniGroup);
+    primaryNameRow?.classList.toggle("is-hidden", false);
     secondNameRow?.classList.toggle("is-hidden", !isSplit);
     miniMembersRow?.classList.toggle("is-hidden", !isMiniGroup);
 
-    primaryName.disabled = isMiniGroup;
+    primaryName.disabled = false;
     primaryName.required = !isMiniGroup;
 
     secondName.disabled = !isSplit;

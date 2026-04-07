@@ -89,12 +89,17 @@ function renderDaySummary(sessions) {
   let personalCount = 0;
   let groupCount = 0;
   let plannedCount = 0;
+  let deletedCount = 0;
   sessions.forEach((session) => {
     if (session.type === "personal") personalCount += 1;
     else if (session.type === "group") groupCount += 1;
+    if (session.status === "удалено") {
+      deletedCount += 1;
+      return;
+    }
     if (!session.status || session.status === "запланировано") plannedCount += 1;
   });
-  const markedCount = sessions.length - plannedCount;
+  const markedCount = sessions.length - plannedCount - deletedCount;
 
   return `
     <div class="calendar-cell-summary">
@@ -102,6 +107,7 @@ function renderDaySummary(sessions) {
       ${groupCount ? `<span class="badge group">Групп: ${groupCount}</span>` : ""}
       ${markedCount ? `<span class="badge calendar-marked">Отмечено: ${markedCount}</span>` : ""}
       ${plannedCount ? `<span class="badge calendar-planned">План: ${plannedCount}</span>` : ""}
+      ${deletedCount ? `<span class="badge">Удалено: ${deletedCount}</span>` : ""}
     </div>
   `;
 }

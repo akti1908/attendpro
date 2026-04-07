@@ -143,10 +143,63 @@ export function renderHome(root, ctx) {
     });
   });
 
-  dayList.querySelectorAll("[data-action='personal-reschedule']").forEach((button) => {
+  dayList.querySelectorAll("[data-action='personal-reschedule-toggle']").forEach((button) => {
     button.addEventListener("click", () => {
       if (!editAllowed) return;
-      ctx.actions.reschedulePersonalSession(button.dataset.studentId, button.dataset.sessionId);
+
+      const card = button.closest("[data-session-card]");
+      const menu = card?.querySelector("[data-reschedule-menu='1']");
+      if (!menu) return;
+      menu.classList.toggle("is-hidden");
+    });
+  });
+
+  dayList.querySelectorAll("[data-action='personal-reschedule-by-schedule']").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (!editAllowed) return;
+      ctx.actions.reschedulePersonalSession(
+        button.dataset.studentId,
+        button.dataset.sessionId,
+        { mode: "schedule" }
+      );
+    });
+  });
+
+  dayList.querySelectorAll("[data-action='personal-reschedule-date-toggle']").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (!editAllowed) return;
+      const card = button.closest("[data-session-card]");
+      const panel = card?.querySelector("[data-transfer-date-panel='1']");
+      if (!panel) return;
+      panel.classList.toggle("is-hidden");
+    });
+  });
+
+  dayList.querySelectorAll("[data-action='personal-reschedule-by-date']").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (!editAllowed) return;
+      const card = button.closest("[data-session-card]");
+      const dateInput = card?.querySelector("[data-transfer-date-input='1']");
+      const targetDate = String(dateInput?.value || "").trim();
+      ctx.actions.reschedulePersonalSession(
+        button.dataset.studentId,
+        button.dataset.sessionId,
+        { mode: "date", targetDate }
+      );
+    });
+  });
+
+  dayList.querySelectorAll("[data-action='personal-delete-session']").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (!editAllowed) return;
+      ctx.actions.deletePersonalSessionRecord(button.dataset.studentId, button.dataset.sessionId);
+    });
+  });
+
+  dayList.querySelectorAll("[data-action='personal-restore-session']").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (!editAllowed) return;
+      ctx.actions.restorePersonalSessionRecord(button.dataset.studentId, button.dataset.sessionId);
     });
   });
 
@@ -160,6 +213,20 @@ export function renderHome(root, ctx) {
         button.dataset.studentId,
         button.dataset.value
       );
+    });
+  });
+
+  dayList.querySelectorAll("[data-action='group-delete-session']").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (!editAllowed) return;
+      ctx.actions.deleteGroupSessionRecord(button.dataset.groupId, button.dataset.sessionId);
+    });
+  });
+
+  dayList.querySelectorAll("[data-action='group-restore-session']").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (!editAllowed) return;
+      ctx.actions.restoreGroupSessionRecord(button.dataset.groupId, button.dataset.sessionId);
     });
   });
 
