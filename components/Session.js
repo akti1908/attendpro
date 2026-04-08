@@ -132,7 +132,6 @@ function renderPersonalSession(entry, editable) {
     <button class="btn small-btn" ${editable ? "" : "disabled"} data-action="personal-mark" data-student-id="${entry.studentId}" data-session-id="${session.id}" data-status="${PERSONAL_PRESENT_STATUS}">Пришел</button>
     <button class="btn small-btn" ${editable ? "" : "disabled"} data-action="personal-mark" data-student-id="${entry.studentId}" data-session-id="${session.id}" data-status="${PERSONAL_MISSED_STATUS}">Не пришел</button>
     ${transferControls}
-    ${deleteControl}
   `;
 
   return `
@@ -154,6 +153,10 @@ function renderPersonalSession(entry, editable) {
 
       <div class="session-actions session-mark-controls ${isMarked ? "is-hidden" : ""}" data-editable-controls="1">
         ${controls}
+      </div>
+
+      <div class="session-press-delete is-hidden" data-long-press-delete="1">
+        ${deleteControl}
       </div>
 
       ${historyBlock}
@@ -270,7 +273,7 @@ function renderGroupSession(entry, editable) {
       <div class="${allMarked || isDeleted ? "is-hidden" : ""}" data-editable-controls="1">
         ${attendanceControls}
       </div>
-      <div class="session-actions">
+      <div class="session-press-delete is-hidden" data-long-press-delete="1">
         ${deleteControl}
       </div>
       ${historyBlock}

@@ -53,6 +53,7 @@ export function renderHome(root, ctx) {
   dayList.innerHTML = sessions.length
     ? sessions.map((entry) => renderSession(entry, { editable: editAllowed })).join("")
     : `<p class="muted">На выбранный день занятий нет.</p>`;
+  bindJournalLongPressDelete(dayList, editAllowed);
 
   root.querySelector("#prev-day").addEventListener("click", () => {
     ctx.actions.shiftSelectedDate(-1);
@@ -257,6 +258,77 @@ export function renderHome(root, ctx) {
     } finally {
       sendTodayReportButton.disabled = false;
     }
+  });
+}
+
+function bindJournalLongPressDelete(dayList, editAllowed) {
+  if (!dayList || !editAllowed) return;
+
+  const cards = [...dayList.querySelectorAll("[data-session-card]")];
+  if (!cards.length) return;
+
+  const LONG_PRESS_MS = 550;
+  const interactiveSelector = "button, input, select, textarea, label, a, [role='button']";
+
+  let timerId = null;
+  let holdCard = null;
+
+  const hideAllDeletePanels = () => {
+    cards.forEach((card) => {
+      const panel = card.querySelector("[data-long-press-delete='1']");
+      if (panel) panel.classList.add("is-hidden");
+      card.classList.remove("session-delete-mode");
+    });
+  };
+
+  const clearHoldTimer = () => {
+    if (!timerId) return;
+    clearTimeout(timerId);
+    timerId = null;
+  };
+
+  const showDeletePanel = (card) => {
+    if (!card) return;
+    hideAllDeletePanels();
+    const panel = card.querySelector("[data-long-press-delete='1']");
+    if (!panel) return;
+    panel.classList.remove("is-hidden");
+    card.classList.add("session-delete-mode");
+    if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
+      navigator.vibrate(12);
+    }
+  };
+
+  cards.forEach((card) => {
+    card.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      const target = event.target instanceof Element ? event.target : null;
+      if (!target) return;
+      if (target.closest(interactiveSelector)) return;
+
+      clearHoldTimer();
+      holdCard = card;
+      timerId = setTimeout(() => {
+        showDeletePanel(holdCard);
+      }, LONG_PRESS_MS);
+    });
+
+    const cancelHold = () => {
+      clearHoldTimer();
+      holdCard = null;
+    };
+
+    card.addEventListener("pointerup", cancelHold);
+    card.addEventListener("pointercancel", cancelHold);
+    card.addEventListener("pointerleave", cancelHold);
+  });
+
+  dayList.addEventListener("pointerdown", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target) return;
+    if (target.closest("[data-long-press-delete='1']")) return;
+    if (target.closest("[data-session-card].session-delete-mode")) return;
+    hideAllDeletePanels();
   });
 }
 

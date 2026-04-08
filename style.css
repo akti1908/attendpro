@@ -541,6 +541,7 @@ input[type="radio"] {
   border-radius: var(--radius-sm);
   padding: 12px;
   margin-bottom: 8px;
+  position: relative;
   background: var(--surface-soft);
   transition: background-color var(--transition), border-color var(--transition);
 }
@@ -606,6 +607,11 @@ input[type="radio"] {
   border-color: rgba(59, 130, 246, 0.4);
 }
 
+.session-delete-mode {
+  border-color: rgba(239, 68, 68, 0.45);
+  box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.22);
+}
+
 .session-deleted {
   border-style: dashed;
   opacity: 0.92;
@@ -636,6 +642,31 @@ input[type="radio"] {
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   gap: 8px;
   margin-top: 9px;
+}
+
+.session-press-delete {
+  position: absolute;
+  top: 42px;
+  right: 10px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.session-press-delete .btn {
+  min-height: 34px;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border-color: rgba(239, 68, 68, 0.52);
+  background: rgba(239, 68, 68, 0.2);
+  color: #fee2e2;
+  font-size: 0.78rem;
+}
+
+.session-press-delete .btn:hover {
+  background: rgba(239, 68, 68, 0.28);
 }
 
 .reschedule-wrap {
