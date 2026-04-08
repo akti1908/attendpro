@@ -28,8 +28,6 @@ export function renderStatistics(root, ctx) {
       </div>
 
       <div class="tools-row">
-        <button id="export-stats-csv" class="btn small-btn">Экспорт статистики CSV</button>
-        <button id="export-backup-json" class="btn small-btn">Скачать бэкап JSON</button>
         <input id="import-backup-file" type="file" accept=".json,application/json" class="is-hidden" />
         <button id="import-backup-btn" class="btn small-btn">Восстановить из бэкапа</button>
       </div>
@@ -54,14 +52,6 @@ export function renderStatistics(root, ctx) {
   `;
 
   const backupInput = root.querySelector("#import-backup-file");
-
-  root.querySelector("#export-stats-csv")?.addEventListener("click", () => {
-    ctx.actions.exportStatisticsCSV();
-  });
-
-  root.querySelector("#export-backup-json")?.addEventListener("click", () => {
-    ctx.actions.exportBackupJSON();
-  });
 
   root.querySelector("#import-backup-btn")?.addEventListener("click", () => {
     backupInput?.click();

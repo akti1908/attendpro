@@ -1,5 +1,4 @@
 import { renderHome } from "./components/Home.js";
-import { renderCalendar } from "./components/Calendar.js";
 import { renderStudentsManager } from "./components/StudentCard.js";
 import { renderGroupsManager } from "./components/GroupCard.js";
 import { renderSession } from "./components/Session.js";
@@ -140,7 +139,6 @@ function bindTopNavigation() {
     "go-today": "home",
     "go-students": "students",
     "go-groups": "groups",
-    "go-calendar": "calendar",
     "go-stats": "stats",
     "go-salary": "salary",
     "go-settings": "settings"
@@ -1159,9 +1157,7 @@ function renderApp() {
     return;
   }
 
-  if (state.view === "calendar") {
-    renderCalendar(root, ctx);
-  } else if (state.view === "students") {
+  if (state.view === "students") {
     renderStudentsManager(root, ctx);
   } else if (state.view === "groups") {
     renderGroupsManager(root, ctx);
@@ -1212,7 +1208,6 @@ function markActiveNavButton() {
     home: "go-today",
     students: "go-students",
     groups: "go-groups",
-    calendar: "go-calendar",
     stats: "go-stats",
     salary: "go-salary",
     settings: "go-settings"
@@ -1277,8 +1272,6 @@ function buildContext() {
       toggleEditMode,
       isEditingAllowedForSelectedDate,
       isDateLocked,
-      setCalendarDate,
-      openDateJournalFromCalendar,
       addStudent,
       importStudentsFromText,
       addStudentPackage,
@@ -1300,9 +1293,7 @@ function buildContext() {
       closeSalaryMonth,
       reopenSalaryMonth,
       exportSalaryMonthCSV,
-      exportStatisticsCSV,
       exportGroupAttendanceMonthlyReport,
-      exportBackupJSON,
       importBackupFromFile,
       setTheme,
       setTrainerCategory,
@@ -1472,7 +1463,7 @@ function getMigrationFallbackOwnerId(users) {
 }
 
 function isAllowedView(value) {
-  return ["home", "students", "groups", "calendar", "stats", "salary", "settings"].includes(value);
+  return ["home", "students", "groups", "stats", "salary", "settings"].includes(value);
 }
 
 function normalizeOwnerId(ownerId, fallbackOwnerId = null) {
@@ -3325,21 +3316,6 @@ function isEditingAllowedForSelectedDate() {
   return Boolean(state.editMode);
 }
 
-function setCalendarDate(dateISO) {
-  state.calendarDate = ensureISODate(dateISO, monthStartISO(getTodayISO()));
-  saveState();
-  renderApp();
-}
-
-function openDateJournalFromCalendar(dateISO) {
-  state.selectedDate = ensureISODate(dateISO, getTodayISO());
-  state.calendarDate = monthStartISO(state.selectedDate);
-  state.view = "home";
-  state.editMode = false;
-  saveState();
-  renderApp();
-}
-
 function isDateLocked(dateISO) {
   const ownerId = getCurrentUserId();
   if (!ownerId) return false;
@@ -4714,51 +4690,6 @@ function getPackageSaleAmount(packageItem, trainingType, participants) {
   return roundMoney(Number(packageItem?.totalPrice || 0));
 }
 
-function exportStatisticsCSV() {
-  const stats = getStatistics();
-  const lines = [
-    "Показатель;Значение",
-    `Посещаемость %;${stats.attendancePercent}`,
-    `Пропуски %;${stats.missesPercent}`,
-    `Продления пакетов;${stats.totalPackageRenewals}`,
-    `\u041e\u0431\u0449\u0430\u044f \u0441\u0443\u043c\u043c\u0430 \u043f\u0440\u043e\u0434\u0430\u0436 \u0437\u0430 \u043c\u0435\u0441\u044f\u0446 (${stats.monthlySalesMonthISO});${stats.monthlySalesTotal}`,
-    `Средний доход за занятие;${stats.avgIncomePerSession}`,
-    `Всего посещений;${stats.totalVisits}`,
-    `Всего пропусков;${stats.totalMisses}`,
-    `Приобретено тренировок;${stats.totalPurchasedTrainings}`,
-    `Осталось посещений;${stats.totalRemainingTrainings}`,
-    "",
-    "Карточка;Тип;Посещений;Пропусков;Приобретено;Осталось;Продлений;Доход;Последняя отметка"
-  ];
-
-  stats.cards.forEach((card) => {
-    const typeLabel = card.type === "group"
-      ? "Групповая"
-      : card.type === "split"
-        ? "Сплит"
-        : card.type === "mini_group"
-          ? "Мини-группа"
-          : "Персональная";
-    lines.push([
-      escapeCsv(card.name),
-      typeLabel,
-      card.visits,
-      card.misses,
-      card.purchasedTrainings,
-      card.remainingTrainings,
-      card.renewals || 0,
-      roundMoney(card.income || 0),
-      card.lastVisitDate || ""
-    ].join(";"));
-  });
-
-  downloadFile(
-    `attendpro-statistics-${getTodayISO()}.csv`,
-    `\ufeff${lines.join("\n")}`,
-    "text/csv;charset=utf-8"
-  );
-}
-
 function exportGroupAttendanceMonthlyReport(groupId, monthISO) {
   const ownerId = getCurrentUserId();
   if (!ownerId) return;
@@ -4868,33 +4799,6 @@ function capitalizeFirstLetter(value) {
   const raw = String(value || "");
   if (!raw) return "";
   return raw.charAt(0).toUpperCase() + raw.slice(1);
-}
-
-function exportBackupJSON() {
-  const currentUser = getCurrentUser();
-  if (!currentUser) return;
-
-  const payload = {
-    exportedAt: new Date().toISOString(),
-    appVersion: APP_VERSION,
-    state: {
-      ...state,
-      users: [currentUser],
-      auth: { currentUserId: currentUser.id },
-      settingsByUser: {
-        [currentUser.id]: getUserSettings(currentUser.id)
-      },
-      students: getStudentsForUser(currentUser.id),
-      groups: getGroupsForUser(currentUser.id),
-      salaryClosures: getSalaryClosuresForUser(currentUser.id)
-    }
-  };
-
-  downloadFile(
-    `attendpro-backup-${getTodayISO()}.json`,
-    JSON.stringify(payload, null, 2),
-    "application/json;charset=utf-8"
-  );
 }
 
 function importBackupFromFile(file) {
