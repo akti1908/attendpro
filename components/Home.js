@@ -379,7 +379,7 @@ function bindJournalLongPressDelete(dayList, editAllowed, ctx) {
 
   cards.forEach((card) => {
     card.addEventListener("pointerdown", (event) => {
-      if (event.button !== 0) return;
+      if (event.pointerType === "mouse" && event.button !== 0) return;
       const target = event.target instanceof Element ? event.target : null;
       if (!target) return;
       if (target.closest(interactiveSelector)) return;
@@ -402,6 +402,7 @@ function bindJournalLongPressDelete(dayList, editAllowed, ctx) {
   });
 
   dayList.addEventListener("pointerdown", (event) => {
+    if (!activeCard) return;
     const target = event.target instanceof Element ? event.target : null;
     if (!target) return;
     if (target.closest("[data-session-card].session-delete-focused")) return;
