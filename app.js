@@ -4432,7 +4432,7 @@ function buildSalaryReport(monthISO) {
   });
 
   const totalSessions = personalSessions + splitSessions + miniGroupSessions;
-  const totalWorkedHours = totalSessions;
+  const totalWorkedHours = buildMonthlyWorkedHours(month);
   const personalIncome = roundMoney(salesSummary.personal * salaryShare);
   const splitIncome = roundMoney(salesSummary.split * salaryShare);
   const miniGroupIncome = roundMoney(salesSummary.miniGroup * salaryShare);
@@ -4503,11 +4503,49 @@ function buildMonthlySalesSummary(monthISO, students = getStudentsForUser()) {
   };
 }
 
+function buildMonthlyWorkedHours(monthISO) {
+  let workedHours = 0;
+  const students = getStudentsForUser();
+  const groups = getGroupsForUser();
+
+  students.forEach((student) => {
+    (Array.isArray(student.sessions) ? student.sessions : []).forEach((session) => {
+      if (isPersonalSessionDeleted(session)) return;
+      if (!isDateInMonth(session.date, monthISO)) return;
+
+      const status = normalizeLegacyText(session.status);
+      if (status === "пришел" || status === "не пришел") {
+        workedHours += 1;
+      }
+    });
+  });
+
+  groups.forEach((group) => {
+    (Array.isArray(group.sessions) ? group.sessions : []).forEach((session) => {
+      if (isGroupSessionDeleted(session)) return;
+      if (!isDateInMonth(session.date, monthISO)) return;
+
+      const attendanceValues = Object.values(session.attendance || {});
+      const hasAnyMark = attendanceValues.some((value) => {
+        const status = normalizeLegacyText(value);
+        return status === "присутствовал" || status === "отсутствовал";
+      });
+
+      if (hasAnyMark) {
+        workedHours += 1;
+      }
+    });
+  });
+
+  return workedHours;
+}
+
 function getSalaryReport(monthISO) {
   const month = ensureMonthISO(monthISO, state.salaryMonth);
   const ownerId = getCurrentUserId();
   const closure = state.salaryClosures.find((item) => item.ownerId === ownerId && item.monthISO === month);
   const salesFallback = buildMonthlySalesSummary(month);
+  const workedHoursFallback = buildMonthlyWorkedHours(month);
   const salaryShare = 0.5;
   const salarySharePercent = 50;
 
@@ -4565,7 +4603,7 @@ function getSalaryReport(monthISO) {
       },
       totalSales,
       totalSessions,
-      totalWorkedHours: Number(closure.snapshot?.totalWorkedHours ?? totalSessions),
+      totalWorkedHours: Number(closure.snapshot?.totalWorkedHours ?? workedHoursFallback),
       totalIncome: roundMoney(totalSales * salaryShare),
       isClosed: true,
       closedAt: closure.closedAt
