@@ -2,38 +2,27 @@
 export function renderSalary(root, ctx) {
   const monthValue = ctx.state.salaryMonth;
   const report = ctx.getSalaryReport(monthValue);
-  const miniGroup = report.miniGroup || { sessions: 0, income: 0 };
+  const salarySharePercent = Number(report.salarySharePercent || 50);
 
   root.innerHTML = `
     <section class="card">
-      <h2 class="section-title">Заработная плата за месяц</h2>
+      <h2 class="section-title">ЗП за месяц</h2>
       <div class="salary-toolbar">
         <label>
           Месяц:
           <input id="salary-month" type="month" value="${report.monthISO}" />
         </label>
         <p class="muted">Период: ${ctx.formatDate(report.startDateISO)} - ${ctx.formatDate(report.endDateISO)}</p>
-        <button id="salary-export-month" class="btn small-btn">Экспорт месяца CSV</button>
-        ${report.isClosed
-          ? `<button id="salary-reopen-month" class="btn small-btn">Открыть месяц</button>`
-          : `<button id="salary-close-month" class="btn small-btn">Закрыть месяц</button>`}
       </div>
-      <p class="salary-lock-note ${report.isClosed ? "salary-lock-closed" : ""}">
-        ${report.isClosed
-          ? `Месяц закрыт ${new Date(report.closedAt).toLocaleString("ru-RU")}. Редактирование занятий этого месяца заблокировано.`
-          : "Месяц открыт. Данные пересчитываются в реальном времени."}
-      </p>
 
       <div class="stats-grid mt-8">
-        <div class="stat-card"><span class="muted">Персональных занятий</span><strong>${report.personal.sessions}</strong></div>
-        <div class="stat-card"><span class="muted">Сплит-занятий</span><strong>${report.split.sessions}</strong></div>
-        <div class="stat-card"><span class="muted">Мини-группа занятий</span><strong>${miniGroup.sessions}</strong></div>
-        <div class="stat-card"><span class="muted">ЗП с персональных</span><strong>${formatMoney(report.personal.income)} сом</strong></div>
-        <div class="stat-card"><span class="muted">ЗП со сплитов</span><strong>${formatMoney(report.split.income)} сом</strong></div>
-        <div class="stat-card"><span class="muted">ЗП с мини-групп</span><strong>${formatMoney(miniGroup.income)} сом</strong></div>
-        <div class="stat-card"><span class="muted">\u041E\u0431\u0449\u0430\u044F \u0441\u0443\u043C\u043C\u0430 \u043F\u0440\u043E\u0434\u0430\u0436</span><strong>${formatMoney(report.totalSales || 0)} \u0441\u043E\u043C</strong></div>
+        <div class="stat-card"><span class="muted">Продажи персональных пакетов</span><strong>${formatMoney(report.sales.personal)} сом</strong></div>
+        <div class="stat-card"><span class="muted">Продажи сплит-пакетов</span><strong>${formatMoney(report.sales.split)} сом</strong></div>
+        <div class="stat-card"><span class="muted">Продажи мини-групп</span><strong>${formatMoney(report.sales.miniGroup)} сом</strong></div>
+        <div class="stat-card"><span class="muted">Сумма продаж за месяц</span><strong>${formatMoney(report.totalSales)} сом</strong></div>
         <div class="stat-card"><span class="muted">Всего занятий</span><strong>${report.totalSessions}</strong></div>
-        <div class="stat-card"><span class="muted">Итоговая ЗП</span><strong>${formatMoney(report.totalIncome)} сом</strong></div>
+        <div class="stat-card"><span class="muted">Отработанные часы</span><strong>${report.totalWorkedHours}</strong></div>
+        <div class="stat-card"><span class="muted">Итоговая ЗП (${salarySharePercent}%)</span><strong>${formatMoney(report.totalIncome)} сом</strong></div>
       </div>
     </section>
 
@@ -47,31 +36,13 @@ export function renderSalary(root, ctx) {
     ctx.actions.setSalaryMonth(event.currentTarget.value);
   });
 
-  root.querySelector("#salary-export-month").addEventListener("click", () => {
-    ctx.actions.exportSalaryMonthCSV(report.monthISO);
-  });
-
-  const closeButton = root.querySelector("#salary-close-month");
-  if (closeButton) {
-    closeButton.addEventListener("click", () => {
-      ctx.actions.closeSalaryMonth(report.monthISO);
-    });
-  }
-
-  const reopenButton = root.querySelector("#salary-reopen-month");
-  if (reopenButton) {
-    reopenButton.addEventListener("click", () => {
-      ctx.actions.reopenSalaryMonth(report.monthISO);
-    });
-  }
-
   const list = root.querySelector("#salary-list");
   list.innerHTML = report.rows.length
-    ? report.rows.map((row) => renderSalaryRow(row)).join("")
-    : `<p class="muted">За выбранный месяц посещений пока нет.</p>`;
+    ? report.rows.map((row) => renderSalaryRow(row, salarySharePercent)).join("")
+    : `<p class="muted">За выбранный месяц по карточкам пока нет продаж и отмеченных занятий.</p>`;
 }
 
-function renderSalaryRow(row) {
+function renderSalaryRow(row, salarySharePercent) {
   const label = row.type === "split"
     ? "Сплит"
     : row.type === "mini_group"
@@ -82,8 +53,9 @@ function renderSalaryRow(row) {
     <article class="card stat-result card-item">
       <h3>${escapeHtml(row.name)}</h3>
       <p><span class="muted">Тип:</span> ${label}</p>
-      <p><span class="muted">Занятий в месяце:</span> ${row.attended}</p>
-      <p><span class="muted">ЗП:</span> ${formatMoney(row.income)} сом</p>
+      <p><span class="muted">Занятий (часов):</span> ${Number(row.attended || 0)}</p>
+      <p><span class="muted">Продажи за месяц:</span> ${formatMoney(row.sales || 0)} сом</p>
+      <p><span class="muted">ЗП (${salarySharePercent}%):</span> ${formatMoney(row.income || 0)} сом</p>
     </article>
   `;
 }

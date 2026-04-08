@@ -4375,67 +4375,87 @@ function buildSalaryReport(monthISO) {
   const endDateISO = monthEndISO(month);
   const students = getStudentsForUser();
   const salesSummary = buildMonthlySalesSummary(month, students);
+  const salaryShare = 0.5;
+  const salarySharePercent = 50;
 
   const rows = [];
   let personalSessions = 0;
   let splitSessions = 0;
   let miniGroupSessions = 0;
-  let personalIncome = 0;
-  let splitIncome = 0;
-  let miniGroupIncome = 0;
 
   students.forEach((student) => {
+    const trainingType = normalizeTrainingType(student.trainingType);
     let attended = 0;
-    let incomeRaw = 0;
+
     (Array.isArray(student.sessions) ? student.sessions : []).forEach((session) => {
       if (isPersonalSessionDeleted(session)) return;
       if (session.status !== "пришел") return;
       if (!isDateInMonth(session.date, month)) return;
       attended += 1;
-      incomeRaw += Number(session.coachIncome || 0);
     });
-    if (!attended) return;
-    const income = roundMoney(incomeRaw);
+
+    const packagesHistory = Array.isArray(student.packagesHistory) ? student.packagesHistory : [];
+    const salesRaw = packagesHistory.reduce((sum, item) => {
+      const purchaseDateISO = getPackagePurchaseDateISO(item, student.createdAt || getTodayISO());
+      if (!isDateInMonth(purchaseDateISO, month)) {
+        return sum;
+      }
+      return sum + getPackageSaleAmount(item, trainingType, student.participants);
+    }, 0);
+    const sales = roundMoney(salesRaw);
+    const income = roundMoney(sales * salaryShare);
+
+    if (!attended && !sales) return;
 
     rows.push({
       id: student.id,
       name: student.name,
-      type: student.trainingType,
+      type: trainingType,
       attended,
+      sales,
       income
     });
 
-    if (student.trainingType === "split") {
+    if (trainingType === "split") {
       splitSessions += attended;
-      splitIncome += income;
-    } else if (student.trainingType === "mini_group") {
+    } else if (trainingType === "mini_group") {
       miniGroupSessions += attended;
-      miniGroupIncome += income;
     } else {
       personalSessions += attended;
-      personalIncome += income;
     }
   });
 
-  rows.sort((a, b) => b.income - a.income);
+  rows.sort((a, b) => {
+    if (b.income !== a.income) return b.income - a.income;
+    if (b.sales !== a.sales) return b.sales - a.sales;
+    return b.attended - a.attended;
+  });
 
   const totalSessions = personalSessions + splitSessions + miniGroupSessions;
-  const totalIncome = roundMoney(personalIncome + splitIncome + miniGroupIncome);
+  const totalWorkedHours = totalSessions;
+  const personalIncome = roundMoney(salesSummary.personal * salaryShare);
+  const splitIncome = roundMoney(salesSummary.split * salaryShare);
+  const miniGroupIncome = roundMoney(salesSummary.miniGroup * salaryShare);
+  const totalIncome = roundMoney(salesSummary.total * salaryShare);
 
   return {
     monthISO: month,
     startDateISO,
     endDateISO,
+    salarySharePercent,
     personal: {
       sessions: personalSessions,
+      sales: salesSummary.personal,
       income: roundMoney(personalIncome)
     },
     split: {
       sessions: splitSessions,
+      sales: salesSummary.split,
       income: roundMoney(splitIncome)
     },
     miniGroup: {
       sessions: miniGroupSessions,
+      sales: salesSummary.miniGroup,
       income: roundMoney(miniGroupIncome)
     },
     sales: {
@@ -4445,6 +4465,7 @@ function buildSalaryReport(monthISO) {
     },
     totalSales: salesSummary.total,
     totalSessions,
+    totalWorkedHours,
     totalIncome,
     rows
   };
@@ -4487,17 +4508,65 @@ function getSalaryReport(monthISO) {
   const ownerId = getCurrentUserId();
   const closure = state.salaryClosures.find((item) => item.ownerId === ownerId && item.monthISO === month);
   const salesFallback = buildMonthlySalesSummary(month);
+  const salaryShare = 0.5;
+  const salarySharePercent = 50;
 
   if (closure) {
     const snapshotSales = closure.snapshot?.sales || {};
+    const normalizedSales = {
+      personal: roundMoney(Number(snapshotSales.personal ?? salesFallback.personal)),
+      split: roundMoney(Number(snapshotSales.split ?? salesFallback.split)),
+      miniGroup: roundMoney(Number(snapshotSales.miniGroup ?? salesFallback.miniGroup))
+    };
+    const totalSales = roundMoney(Number(closure.snapshot?.totalSales ?? salesFallback.total));
+    const snapshotRows = Array.isArray(closure.snapshot?.rows) ? closure.snapshot.rows : [];
+    const rows = snapshotRows.map((row) => {
+      const hasSales = row?.sales !== undefined && row?.sales !== null;
+      const sales = hasSales ? roundMoney(Number(row.sales || 0)) : 0;
+      const income = hasSales
+        ? roundMoney(sales * salaryShare)
+        : roundMoney(Number(row?.income || 0));
+
+      return {
+        ...row,
+        attended: Math.max(0, Number(row?.attended || 0)),
+        sales,
+        income
+      };
+    });
+    const totalSessions = Number(
+      closure.snapshot?.totalSessions
+      ?? rows.reduce((sum, row) => sum + Number(row.attended || 0), 0)
+    );
+
     return {
       ...closure.snapshot,
+      salarySharePercent,
+      rows,
       sales: {
-        personal: roundMoney(Number(snapshotSales.personal ?? salesFallback.personal)),
-        split: roundMoney(Number(snapshotSales.split ?? salesFallback.split)),
-        miniGroup: roundMoney(Number(snapshotSales.miniGroup ?? salesFallback.miniGroup))
+        personal: normalizedSales.personal,
+        split: normalizedSales.split,
+        miniGroup: normalizedSales.miniGroup
       },
-      totalSales: roundMoney(Number(closure.snapshot?.totalSales ?? salesFallback.total)),
+      personal: {
+        sessions: Number(closure.snapshot?.personal?.sessions || 0),
+        sales: normalizedSales.personal,
+        income: roundMoney(normalizedSales.personal * salaryShare)
+      },
+      split: {
+        sessions: Number(closure.snapshot?.split?.sessions || 0),
+        sales: normalizedSales.split,
+        income: roundMoney(normalizedSales.split * salaryShare)
+      },
+      miniGroup: {
+        sessions: Number(closure.snapshot?.miniGroup?.sessions || 0),
+        sales: normalizedSales.miniGroup,
+        income: roundMoney(normalizedSales.miniGroup * salaryShare)
+      },
+      totalSales,
+      totalSessions,
+      totalWorkedHours: Number(closure.snapshot?.totalWorkedHours ?? totalSessions),
+      totalIncome: roundMoney(totalSales * salaryShare),
       isClosed: true,
       closedAt: closure.closedAt
     };
