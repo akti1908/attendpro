@@ -46,6 +46,13 @@ export function renderHome(root, ctx) {
           <p id="send-today-report-message" class="muted small-note"></p>
         </div>
       </section>
+      <div class="journal-delete-toolbar is-hidden" data-journal-delete-toolbar="1" role="dialog" aria-label="Удаление посещения">
+        <div class="journal-delete-toolbar-title" data-journal-delete-title="1">Выбрано посещение</div>
+        <div class="journal-delete-toolbar-actions">
+          <button class="btn small-btn journal-delete-cancel" type="button" data-action="cancel-session-delete-mode">Отмена</button>
+          <button class="btn small-btn journal-delete-confirm" type="button" data-action="confirm-session-delete">Удалить посещение</button>
+        </div>
+      </div>
     </div>
   `;
 
@@ -55,7 +62,7 @@ export function renderHome(root, ctx) {
   dayList.innerHTML = sessions.length
     ? sessions.map((entry) => renderSession(entry, { editable: editAllowed })).join("")
     : `<p class="muted">На выбранный день занятий нет.</p>`;
-  bindJournalLongPressDelete(dayList, editAllowed);
+  bindJournalLongPressDelete(dayList, editAllowed, ctx);
 
   root.querySelector("#prev-day").addEventListener("click", () => {
     ctx.actions.shiftSelectedDate(-1);
@@ -263,28 +270,26 @@ export function renderHome(root, ctx) {
   });
 }
 
-function bindJournalLongPressDelete(dayList, editAllowed) {
-  if (!dayList || !editAllowed) return;
+function bindJournalLongPressDelete(dayList, editAllowed, ctx) {
+  if (!dayList || !editAllowed || !ctx?.actions) return;
 
   const cards = [...dayList.querySelectorAll("[data-session-card]")];
   if (!cards.length) return;
+
   const overlay = document.querySelector("[data-journal-focus-overlay='1']");
+  const toolbar = document.querySelector("[data-journal-delete-toolbar='1']");
+  const toolbarTitle = toolbar?.querySelector("[data-journal-delete-title='1']");
+  const cancelButton = toolbar?.querySelector("[data-action='cancel-session-delete-mode']");
+  const confirmButton = toolbar?.querySelector("[data-action='confirm-session-delete']");
+  if (!overlay || !toolbar || !confirmButton || !cancelButton) return;
 
   const LONG_PRESS_MS = 550;
   const interactiveSelector = "button, input, select, textarea, label, a, [role='button']";
 
   let timerId = null;
   let holdCard = null;
-
-  const hideDeleteMode = () => {
-    cards.forEach((card) => {
-      const panel = card.querySelector("[data-long-press-actions='1']");
-      if (panel) panel.classList.add("is-hidden");
-      card.classList.remove("session-delete-mode", "session-delete-focused");
-    });
-    if (overlay) overlay.classList.add("is-hidden");
-    document.body.classList.remove("journal-delete-active");
-  };
+  let activeCard = null;
+  let activeDeleteMeta = null;
 
   const clearHoldTimer = () => {
     if (!timerId) return;
@@ -292,19 +297,83 @@ function bindJournalLongPressDelete(dayList, editAllowed) {
     timerId = null;
   };
 
+  const hideDeleteMode = () => {
+    clearHoldTimer();
+    holdCard = null;
+    activeCard = null;
+    activeDeleteMeta = null;
+
+    cards.forEach((card) => {
+      card.classList.remove("session-delete-mode", "session-delete-focused");
+    });
+
+    toolbar.classList.add("is-hidden");
+    overlay.classList.add("is-hidden");
+    document.body.classList.remove("journal-delete-active");
+    confirmButton.textContent = "Удалить посещение";
+    confirmButton.classList.remove("is-restore");
+    if (toolbarTitle) toolbarTitle.textContent = "Выбрано посещение";
+  };
+
+  const resolveDeleteMeta = (card) => {
+    const entryType = String(card?.dataset.entryType || "").trim();
+    const status = String(card?.dataset.status || "").trim();
+    const sessionId = String(card?.dataset.sessionCard || "").trim();
+    if (!entryType || !sessionId) return null;
+
+    const isDeleted = status === "удалено";
+    if (entryType === "personal") {
+      const studentId = String(card?.dataset.studentId || "").trim();
+      if (!studentId) return null;
+      return {
+        label: isDeleted ? "Вернуть посещение" : "Удалить посещение",
+        isRestore: isDeleted,
+        run: () => {
+          if (isDeleted) ctx.actions.restorePersonalSessionRecord(studentId, sessionId);
+          else ctx.actions.deletePersonalSessionRecord(studentId, sessionId);
+        }
+      };
+    }
+
+    if (entryType === "group") {
+      const groupId = String(card?.dataset.groupId || "").trim();
+      if (!groupId) return null;
+      return {
+        label: isDeleted ? "Вернуть посещение" : "Удалить посещение",
+        isRestore: isDeleted,
+        run: () => {
+          if (isDeleted) ctx.actions.restoreGroupSessionRecord(groupId, sessionId);
+          else ctx.actions.deleteGroupSessionRecord(groupId, sessionId);
+        }
+      };
+    }
+
+    return null;
+  };
+
   const showDeleteMode = (card) => {
     if (!card) return;
-    hideDeleteMode();
-    const panel = card.querySelector("[data-long-press-actions='1']");
-    if (!panel) return;
+    const meta = resolveDeleteMeta(card);
+    if (!meta) return;
 
-    panel.classList.remove("is-hidden");
-    card.classList.add("session-delete-mode", "session-delete-focused");
-    if (overlay) overlay.classList.remove("is-hidden");
+    hideDeleteMode();
+    activeCard = card;
+    activeDeleteMeta = meta;
+    activeCard.classList.add("session-delete-mode", "session-delete-focused");
+
+    const headLabel = String(card.querySelector(".session-head div")?.textContent || "").trim();
+    if (toolbarTitle) {
+      toolbarTitle.textContent = headLabel ? `Выбрано: ${headLabel}` : "Выбрано посещение";
+    }
+    confirmButton.textContent = meta.label;
+    confirmButton.classList.toggle("is-restore", Boolean(meta.isRestore));
+
+    overlay.classList.remove("is-hidden");
+    toolbar.classList.remove("is-hidden");
     document.body.classList.add("journal-delete-active");
 
     if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
-      navigator.vibrate(12);
+      navigator.vibrate(14);
     }
   };
 
@@ -335,29 +404,22 @@ function bindJournalLongPressDelete(dayList, editAllowed) {
   dayList.addEventListener("pointerdown", (event) => {
     const target = event.target instanceof Element ? event.target : null;
     if (!target) return;
-    if (target.closest("[data-long-press-actions='1']")) return;
-    if (target.closest("[data-action='cancel-session-delete-mode']")) return;
     if (target.closest("[data-session-card].session-delete-focused")) return;
     hideDeleteMode();
   });
 
-  dayList.querySelectorAll("[data-action='cancel-session-delete-mode']").forEach((button) => {
-    button.addEventListener("click", () => {
-      hideDeleteMode();
-    });
+  cancelButton.addEventListener("click", () => {
+    hideDeleteMode();
   });
 
-  dayList
-    .querySelectorAll(
-      "[data-action='personal-delete-session'], [data-action='personal-restore-session'], [data-action='group-delete-session'], [data-action='group-restore-session']"
-    )
-    .forEach((button) => {
-      button.addEventListener("click", () => {
-        hideDeleteMode();
-      });
-    });
+  confirmButton.addEventListener("click", () => {
+    const deleteMeta = activeDeleteMeta;
+    hideDeleteMode();
+    if (!deleteMeta) return;
+    deleteMeta.run();
+  });
 
-  overlay?.addEventListener("click", () => {
+  overlay.addEventListener("click", () => {
     hideDeleteMode();
   });
 }

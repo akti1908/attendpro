@@ -656,45 +656,78 @@ input[type="radio"] {
   position: fixed;
   inset: 0;
   z-index: 200;
-  background: rgba(2, 6, 23, 0.66);
-  backdrop-filter: blur(1.5px);
+  background: rgba(2, 6, 23, 0.84);
+  backdrop-filter: blur(2px);
 }
 
 body.journal-delete-active {
   overflow: hidden;
 }
 
-.session-press-actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 10px;
-  align-items: center;
+.journal-delete-toolbar {
+  position: fixed;
+  left: 50%;
+  bottom: calc(14px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 360;
+  width: min(620px, calc(100% - 20px));
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.96);
+  box-shadow: 0 22px 46px rgba(2, 6, 23, 0.52);
+  padding: 12px;
 }
 
-.session-press-actions .btn {
-  min-height: 36px;
-  border-radius: 10px;
-  padding: 0 12px;
+.journal-delete-toolbar-title {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.session-delete-btn {
-  border-color: rgba(239, 68, 68, 0.52);
-  background: rgba(239, 68, 68, 0.2);
+.journal-delete-toolbar-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.journal-delete-toolbar .btn {
+  min-height: 44px;
+  border-radius: 12px;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.journal-delete-cancel {
+  border-color: rgba(148, 163, 184, 0.48);
+  background: rgba(71, 85, 105, 0.34);
+}
+
+.journal-delete-cancel:hover {
+  background: rgba(100, 116, 139, 0.42);
+}
+
+.journal-delete-confirm {
+  border-color: rgba(239, 68, 68, 0.62);
+  background: rgba(239, 68, 68, 0.34);
   color: #fee2e2;
 }
 
-.session-delete-btn:hover {
-  background: rgba(239, 68, 68, 0.28);
+.journal-delete-confirm:hover {
+  background: rgba(239, 68, 68, 0.44);
 }
 
-.session-restore-btn {
-  border-color: rgba(59, 130, 246, 0.55);
-  background: rgba(59, 130, 246, 0.22);
+.journal-delete-confirm.is-restore {
+  border-color: rgba(59, 130, 246, 0.64);
+  background: rgba(59, 130, 246, 0.34);
   color: #dbeafe;
 }
 
-.session-restore-btn:hover {
-  background: rgba(59, 130, 246, 0.3);
+.journal-delete-confirm.is-restore:hover {
+  background: rgba(59, 130, 246, 0.46);
 }
 
 .reschedule-wrap {

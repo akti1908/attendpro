@@ -102,33 +102,6 @@ function renderPersonalSession(entry, editable) {
     `
     : "";
 
-  const deleteControlClass = isDeleted ? "session-restore-btn" : "session-delete-btn";
-  const deleteControl = isDeleted
-    ? `
-      <button
-        class="btn small-btn ${deleteControlClass}"
-        ${editable ? "" : "disabled"}
-        type="button"
-        data-action="personal-restore-session"
-        data-student-id="${entry.studentId}"
-        data-session-id="${session.id}"
-      >
-        Вернуть посещение
-      </button>
-    `
-    : `
-      <button
-        class="btn small-btn ${deleteControlClass}"
-        ${editable ? "" : "disabled"}
-        type="button"
-        data-action="personal-delete-session"
-        data-student-id="${entry.studentId}"
-        data-session-id="${session.id}"
-      >
-        Удалить посещение
-      </button>
-    `;
-
   const controls = `
     <button class="btn small-btn" ${editable ? "" : "disabled"} data-action="personal-mark" data-student-id="${entry.studentId}" data-session-id="${session.id}" data-status="${PERSONAL_PRESENT_STATUS}">Пришел</button>
     <button class="btn small-btn" ${editable ? "" : "disabled"} data-action="personal-mark" data-student-id="${entry.studentId}" data-session-id="${session.id}" data-status="${PERSONAL_MISSED_STATUS}">Не пришел</button>
@@ -136,7 +109,14 @@ function renderPersonalSession(entry, editable) {
   `;
 
   return `
-    <article class="session personal ${isMarked ? "session-marked" : ""} ${isDeleted ? "session-deleted" : ""}" data-session-card="${session.id}" data-marked="${isMarked ? "1" : "0"}" data-status="${session.status}">
+    <article
+      class="session personal ${isMarked ? "session-marked" : ""} ${isDeleted ? "session-deleted" : ""}"
+      data-entry-type="personal"
+      data-student-id="${entry.studentId}"
+      data-session-card="${session.id}"
+      data-marked="${isMarked ? "1" : "0"}"
+      data-status="${session.status}"
+    >
       <div class="session-head">
         <div><strong>${session.time}</strong> - ${safeStudentName}</div>
         <button class="btn small-btn" ${(isMarked && editable) ? "" : "disabled"} data-action="toggle-session-edit" data-session-id="${session.id}">Редактировать</button>
@@ -154,18 +134,6 @@ function renderPersonalSession(entry, editable) {
 
       <div class="session-actions session-mark-controls ${isMarked ? "is-hidden" : ""}" data-editable-controls="1">
         ${controls}
-      </div>
-
-      <div class="session-press-actions is-hidden" data-long-press-actions="1">
-        <button
-          class="btn small-btn"
-          ${editable ? "" : "disabled"}
-          type="button"
-          data-action="cancel-session-delete-mode"
-        >
-          Отмена
-        </button>
-        ${deleteControl}
       </div>
 
       ${historyBlock}
@@ -245,35 +213,15 @@ function renderGroupSession(entry, editable) {
     })
     .join("");
 
-  const deleteControlClass = isDeleted ? "session-restore-btn" : "session-delete-btn";
-  const deleteControl = isDeleted
-    ? `
-      <button
-        class="btn small-btn ${deleteControlClass}"
-        ${editable ? "" : "disabled"}
-        type="button"
-        data-action="group-restore-session"
-        data-group-id="${entry.groupId}"
-        data-session-id="${session.id}"
-      >
-        Вернуть посещение
-      </button>
-    `
-    : `
-      <button
-        class="btn small-btn ${deleteControlClass}"
-        ${editable ? "" : "disabled"}
-        type="button"
-        data-action="group-delete-session"
-        data-group-id="${entry.groupId}"
-        data-session-id="${session.id}"
-      >
-        Удалить посещение
-      </button>
-    `;
-
   return `
-    <article class="session group ${hasAnyMarked ? "session-marked" : ""} ${isDeleted ? "session-deleted" : ""}" data-session-card="${session.id}" data-marked="${hasAnyMarked ? "1" : "0"}" data-status="${isDeleted ? "удалено" : "group"}">
+    <article
+      class="session group ${hasAnyMarked ? "session-marked" : ""} ${isDeleted ? "session-deleted" : ""}"
+      data-entry-type="group"
+      data-group-id="${entry.groupId}"
+      data-session-card="${session.id}"
+      data-marked="${hasAnyMarked ? "1" : "0"}"
+      data-status="${isDeleted ? "удалено" : "group"}"
+    >
       <div class="session-head">
         <div><strong>${session.time}</strong> - Группа: ${escapeHtml(entry.groupName)}</div>
         <button class="btn small-btn" ${(allMarked && editable && !isDeleted) ? "" : "disabled"} data-action="toggle-session-edit" data-session-id="${session.id}">Редактировать</button>
@@ -282,17 +230,6 @@ function renderGroupSession(entry, editable) {
       ${summaryBlock}
       <div class="${allMarked || isDeleted ? "is-hidden" : ""}" data-editable-controls="1">
         ${attendanceControls}
-      </div>
-      <div class="session-press-actions is-hidden" data-long-press-actions="1">
-        <button
-          class="btn small-btn"
-          ${editable ? "" : "disabled"}
-          type="button"
-          data-action="cancel-session-delete-mode"
-        >
-          Отмена
-        </button>
-        ${deleteControl}
       </div>
       ${historyBlock}
     </article>
