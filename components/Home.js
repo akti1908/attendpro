@@ -2,6 +2,7 @@
 
 // Журнал занятий на выбранную дату.
 export function renderHome(root, ctx) {
+  document.body.classList.remove("journal-delete-active");
   const selectedDate = ctx.state.selectedDate;
   const todayISO = ctx.getTodayISO();
   const lockedByMonth = ctx.actions.isDateLocked(selectedDate);
@@ -14,6 +15,7 @@ export function renderHome(root, ctx) {
     : ctx.formatDate(selectedDate);
   root.innerHTML = `
     <div class="journal-swipe-surface" data-journal-swipe-surface="1">
+      <div class="journal-focus-overlay is-hidden" data-journal-focus-overlay="1" aria-hidden="true"></div>
       <section class="card journal-card">
         <h2 class="section-title">Журнал посещаемости</h2>
         <div class="date-toolbar">
@@ -266,6 +268,7 @@ function bindJournalLongPressDelete(dayList, editAllowed) {
 
   const cards = [...dayList.querySelectorAll("[data-session-card]")];
   if (!cards.length) return;
+  const overlay = document.querySelector("[data-journal-focus-overlay='1']");
 
   const LONG_PRESS_MS = 550;
   const interactiveSelector = "button, input, select, textarea, label, a, [role='button']";
@@ -273,12 +276,14 @@ function bindJournalLongPressDelete(dayList, editAllowed) {
   let timerId = null;
   let holdCard = null;
 
-  const hideAllDeletePanels = () => {
+  const hideDeleteMode = () => {
     cards.forEach((card) => {
-      const panel = card.querySelector("[data-long-press-delete='1']");
+      const panel = card.querySelector("[data-long-press-actions='1']");
       if (panel) panel.classList.add("is-hidden");
-      card.classList.remove("session-delete-mode");
+      card.classList.remove("session-delete-mode", "session-delete-focused");
     });
+    if (overlay) overlay.classList.add("is-hidden");
+    document.body.classList.remove("journal-delete-active");
   };
 
   const clearHoldTimer = () => {
@@ -287,13 +292,17 @@ function bindJournalLongPressDelete(dayList, editAllowed) {
     timerId = null;
   };
 
-  const showDeletePanel = (card) => {
+  const showDeleteMode = (card) => {
     if (!card) return;
-    hideAllDeletePanels();
-    const panel = card.querySelector("[data-long-press-delete='1']");
+    hideDeleteMode();
+    const panel = card.querySelector("[data-long-press-actions='1']");
     if (!panel) return;
+
     panel.classList.remove("is-hidden");
-    card.classList.add("session-delete-mode");
+    card.classList.add("session-delete-mode", "session-delete-focused");
+    if (overlay) overlay.classList.remove("is-hidden");
+    document.body.classList.add("journal-delete-active");
+
     if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
       navigator.vibrate(12);
     }
@@ -309,7 +318,7 @@ function bindJournalLongPressDelete(dayList, editAllowed) {
       clearHoldTimer();
       holdCard = card;
       timerId = setTimeout(() => {
-        showDeletePanel(holdCard);
+        showDeleteMode(holdCard);
       }, LONG_PRESS_MS);
     });
 
@@ -326,9 +335,30 @@ function bindJournalLongPressDelete(dayList, editAllowed) {
   dayList.addEventListener("pointerdown", (event) => {
     const target = event.target instanceof Element ? event.target : null;
     if (!target) return;
-    if (target.closest("[data-long-press-delete='1']")) return;
-    if (target.closest("[data-session-card].session-delete-mode")) return;
-    hideAllDeletePanels();
+    if (target.closest("[data-long-press-actions='1']")) return;
+    if (target.closest("[data-action='cancel-session-delete-mode']")) return;
+    if (target.closest("[data-session-card].session-delete-focused")) return;
+    hideDeleteMode();
+  });
+
+  dayList.querySelectorAll("[data-action='cancel-session-delete-mode']").forEach((button) => {
+    button.addEventListener("click", () => {
+      hideDeleteMode();
+    });
+  });
+
+  dayList
+    .querySelectorAll(
+      "[data-action='personal-delete-session'], [data-action='personal-restore-session'], [data-action='group-delete-session'], [data-action='group-restore-session']"
+    )
+    .forEach((button) => {
+      button.addEventListener("click", () => {
+        hideDeleteMode();
+      });
+    });
+
+  overlay?.addEventListener("click", () => {
+    hideDeleteMode();
   });
 }
 

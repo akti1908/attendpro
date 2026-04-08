@@ -102,10 +102,11 @@ function renderPersonalSession(entry, editable) {
     `
     : "";
 
+  const deleteControlClass = isDeleted ? "session-restore-btn" : "session-delete-btn";
   const deleteControl = isDeleted
     ? `
       <button
-        class="btn small-btn"
+        class="btn small-btn ${deleteControlClass}"
         ${editable ? "" : "disabled"}
         type="button"
         data-action="personal-restore-session"
@@ -117,7 +118,7 @@ function renderPersonalSession(entry, editable) {
     `
     : `
       <button
-        class="btn small-btn"
+        class="btn small-btn ${deleteControlClass}"
         ${editable ? "" : "disabled"}
         type="button"
         data-action="personal-delete-session"
@@ -155,7 +156,15 @@ function renderPersonalSession(entry, editable) {
         ${controls}
       </div>
 
-      <div class="session-press-delete is-hidden" data-long-press-delete="1">
+      <div class="session-press-actions is-hidden" data-long-press-actions="1">
+        <button
+          class="btn small-btn"
+          ${editable ? "" : "disabled"}
+          type="button"
+          data-action="cancel-session-delete-mode"
+        >
+          Отмена
+        </button>
         ${deleteControl}
       </div>
 
@@ -236,10 +245,11 @@ function renderGroupSession(entry, editable) {
     })
     .join("");
 
+  const deleteControlClass = isDeleted ? "session-restore-btn" : "session-delete-btn";
   const deleteControl = isDeleted
     ? `
       <button
-        class="btn small-btn"
+        class="btn small-btn ${deleteControlClass}"
         ${editable ? "" : "disabled"}
         type="button"
         data-action="group-restore-session"
@@ -251,7 +261,7 @@ function renderGroupSession(entry, editable) {
     `
     : `
       <button
-        class="btn small-btn"
+        class="btn small-btn ${deleteControlClass}"
         ${editable ? "" : "disabled"}
         type="button"
         data-action="group-delete-session"
@@ -273,7 +283,15 @@ function renderGroupSession(entry, editable) {
       <div class="${allMarked || isDeleted ? "is-hidden" : ""}" data-editable-controls="1">
         ${attendanceControls}
       </div>
-      <div class="session-press-delete is-hidden" data-long-press-delete="1">
+      <div class="session-press-actions is-hidden" data-long-press-actions="1">
+        <button
+          class="btn small-btn"
+          ${editable ? "" : "disabled"}
+          type="button"
+          data-action="cancel-session-delete-mode"
+        >
+          Отмена
+        </button>
         ${deleteControl}
       </div>
       ${historyBlock}
