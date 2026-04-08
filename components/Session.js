@@ -130,7 +130,7 @@ function renderPersonalSession(entry, editable) {
       </div>
 
       ${transferInfo}
-      ${isMarked ? `<div class="marked-note">${isDeleted ? "Посещение удалено" : "Отметка уже произведена"}</div>` : ""}
+      ${isMarked && !isDeleted ? `<div class="marked-note">Отметка уже произведена</div>` : ""}
 
       <div class="session-actions session-mark-controls ${isMarked ? "is-hidden" : ""}" data-editable-controls="1">
         ${controls}
@@ -226,7 +226,7 @@ function renderGroupSession(entry, editable) {
         <div><strong>${session.time}</strong> - Группа: ${escapeHtml(entry.groupName)}</div>
         <button class="btn small-btn" ${(allMarked && editable && !isDeleted) ? "" : "disabled"} data-action="toggle-session-edit" data-session-id="${session.id}">Редактировать</button>
       </div>
-      ${isDeleted ? `<div class="marked-note">Посещение группы удалено</div>` : hasAnyMarked ? `<div class="marked-note">Есть проставленные отметки</div>` : ""}
+      ${hasAnyMarked ? `<div class="marked-note">Есть проставленные отметки</div>` : ""}
       ${summaryBlock}
       <div class="${allMarked || isDeleted ? "is-hidden" : ""}" data-editable-controls="1">
         ${attendanceControls}
