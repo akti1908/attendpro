@@ -47,9 +47,7 @@ export function renderHome(root, ctx) {
         </div>
       </section>
       <div class="journal-delete-toolbar is-hidden" data-journal-delete-toolbar="1" role="dialog" aria-label="Удаление посещения" aria-modal="true">
-        <div class="journal-delete-dialog-icon" aria-hidden="true">!</div>
         <div class="journal-delete-toolbar-title" data-journal-delete-title="1">Удалить посещение?</div>
-        <p class="journal-delete-toolbar-subtitle muted" data-journal-delete-subtitle="1">Выбранное занятие можно будет вернуть позже.</p>
         <div class="journal-delete-toolbar-actions">
           <button class="btn small-btn journal-delete-cancel" type="button" data-action="cancel-session-delete-mode">Отмена</button>
           <button class="btn small-btn journal-delete-confirm" type="button" data-action="confirm-session-delete">Удалить посещение</button>
@@ -281,7 +279,6 @@ function bindJournalLongPressDelete(dayList, editAllowed, ctx) {
   const overlay = document.querySelector("[data-journal-focus-overlay='1']");
   const toolbar = document.querySelector("[data-journal-delete-toolbar='1']");
   const toolbarTitle = toolbar?.querySelector("[data-journal-delete-title='1']");
-  const toolbarSubtitle = toolbar?.querySelector("[data-journal-delete-subtitle='1']");
   const cancelButton = toolbar?.querySelector("[data-action='cancel-session-delete-mode']");
   const confirmButton = toolbar?.querySelector("[data-action='confirm-session-delete']");
   if (!overlay || !toolbar || !confirmButton || !cancelButton) return;
@@ -313,10 +310,37 @@ function bindJournalLongPressDelete(dayList, editAllowed, ctx) {
     toolbar.classList.add("is-hidden");
     overlay.classList.add("is-hidden");
     document.body.classList.remove("journal-delete-active");
+    toolbar.style.removeProperty("left");
+    toolbar.style.removeProperty("top");
+    toolbar.style.removeProperty("width");
     confirmButton.textContent = "Удалить посещение";
     confirmButton.classList.remove("is-restore");
     if (toolbarTitle) toolbarTitle.textContent = "Удалить посещение?";
-    if (toolbarSubtitle) toolbarSubtitle.textContent = "Выбранное занятие можно будет вернуть позже.";
+  };
+
+  const placeDeleteDialogNearCard = () => {
+    if (!activeCard) return;
+    const rect = activeCard.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+
+    const viewportPadding = 12;
+    const dialogWidth = Math.min(
+      Math.max(280, rect.width),
+      window.innerWidth - viewportPadding * 2
+    );
+
+    toolbar.style.width = `${dialogWidth}px`;
+    toolbar.style.left = `${Math.max(
+      viewportPadding,
+      Math.min(rect.left, window.innerWidth - dialogWidth - viewportPadding)
+    )}px`;
+
+    let top = rect.bottom + 10;
+    const dialogHeight = Math.max(96, toolbar.offsetHeight || 126);
+    if (top + dialogHeight > window.innerHeight - viewportPadding) {
+      top = Math.max(viewportPadding, rect.top - dialogHeight - 10);
+    }
+    toolbar.style.top = `${top}px`;
   };
 
   const resolveDeleteMeta = (card) => {
@@ -365,20 +389,15 @@ function bindJournalLongPressDelete(dayList, editAllowed, ctx) {
     activeDeleteMeta = meta;
     activeCard.classList.add("session-delete-mode", "session-delete-focused");
 
-    const headLabel = String(card.querySelector(".session-head div")?.textContent || "").trim();
     if (toolbarTitle) {
       toolbarTitle.textContent = meta.isRestore ? "Вернуть посещение?" : "Удалить посещение?";
-    }
-    if (toolbarSubtitle) {
-      toolbarSubtitle.textContent = headLabel
-        ? `Занятие: ${headLabel}`
-        : "Выбранное занятие можно будет вернуть позже.";
     }
     confirmButton.textContent = meta.label;
     confirmButton.classList.toggle("is-restore", Boolean(meta.isRestore));
 
     overlay.classList.remove("is-hidden");
     toolbar.classList.remove("is-hidden");
+    placeDeleteDialogNearCard();
     document.body.classList.add("journal-delete-active");
 
     if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {

@@ -615,7 +615,8 @@ input[type="radio"] {
 }
 
 .session-delete-focused {
-  z-index: 250;
+  z-index: 340;
+  box-shadow: 0 14px 34px rgba(2, 6, 23, 0.55), inset 0 0 0 1px rgba(59, 130, 246, 0.18);
 }
 
 .session-delete-mode .session-mark-controls {
@@ -676,49 +677,28 @@ body.journal-delete-active {
 
 .journal-delete-toolbar {
   position: fixed;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
+  left: 12px;
+  top: 12px;
+  transform: none;
   z-index: 360;
-  width: min(380px, calc(100% - 28px));
+  width: min(420px, calc(100% - 24px));
   border: 1px solid rgba(148, 163, 184, 0.28);
-  border-radius: 20px;
+  border-radius: 16px;
   background: rgba(15, 23, 42, 0.94);
   box-shadow: 0 26px 52px rgba(2, 6, 23, 0.65);
-  padding: 16px;
-  text-align: center;
-}
-
-.journal-delete-dialog-icon {
-  width: 44px;
-  height: 44px;
-  border-radius: 999px;
-  margin: 2px auto 10px;
-  display: grid;
-  place-items: center;
-  font-size: 1.15rem;
-  font-weight: 800;
-  color: #fee2e2;
-  border: 1px solid rgba(239, 68, 68, 0.45);
-  background: rgba(239, 68, 68, 0.2);
+  padding: 14px;
+  text-align: left;
 }
 
 .journal-delete-toolbar-title {
   font-size: 1rem;
   font-weight: 700;
   color: var(--text);
-  margin-bottom: 4px;
+  margin-bottom: 10px;
   letter-spacing: 0.01em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.journal-delete-toolbar-subtitle {
-  margin: 0 0 12px;
-  font-size: 0.84rem;
-  line-height: 1.35;
-  min-height: 2.2em;
 }
 
 .journal-delete-toolbar-actions {
