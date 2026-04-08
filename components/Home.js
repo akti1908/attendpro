@@ -46,8 +46,10 @@ export function renderHome(root, ctx) {
           <p id="send-today-report-message" class="muted small-note"></p>
         </div>
       </section>
-      <div class="journal-delete-toolbar is-hidden" data-journal-delete-toolbar="1" role="dialog" aria-label="Удаление посещения">
-        <div class="journal-delete-toolbar-title" data-journal-delete-title="1">Выбрано посещение</div>
+      <div class="journal-delete-toolbar is-hidden" data-journal-delete-toolbar="1" role="dialog" aria-label="Удаление посещения" aria-modal="true">
+        <div class="journal-delete-dialog-icon" aria-hidden="true">!</div>
+        <div class="journal-delete-toolbar-title" data-journal-delete-title="1">Удалить посещение?</div>
+        <p class="journal-delete-toolbar-subtitle muted" data-journal-delete-subtitle="1">Выбранное занятие можно будет вернуть позже.</p>
         <div class="journal-delete-toolbar-actions">
           <button class="btn small-btn journal-delete-cancel" type="button" data-action="cancel-session-delete-mode">Отмена</button>
           <button class="btn small-btn journal-delete-confirm" type="button" data-action="confirm-session-delete">Удалить посещение</button>
@@ -279,6 +281,7 @@ function bindJournalLongPressDelete(dayList, editAllowed, ctx) {
   const overlay = document.querySelector("[data-journal-focus-overlay='1']");
   const toolbar = document.querySelector("[data-journal-delete-toolbar='1']");
   const toolbarTitle = toolbar?.querySelector("[data-journal-delete-title='1']");
+  const toolbarSubtitle = toolbar?.querySelector("[data-journal-delete-subtitle='1']");
   const cancelButton = toolbar?.querySelector("[data-action='cancel-session-delete-mode']");
   const confirmButton = toolbar?.querySelector("[data-action='confirm-session-delete']");
   if (!overlay || !toolbar || !confirmButton || !cancelButton) return;
@@ -312,7 +315,8 @@ function bindJournalLongPressDelete(dayList, editAllowed, ctx) {
     document.body.classList.remove("journal-delete-active");
     confirmButton.textContent = "Удалить посещение";
     confirmButton.classList.remove("is-restore");
-    if (toolbarTitle) toolbarTitle.textContent = "Выбрано посещение";
+    if (toolbarTitle) toolbarTitle.textContent = "Удалить посещение?";
+    if (toolbarSubtitle) toolbarSubtitle.textContent = "Выбранное занятие можно будет вернуть позже.";
   };
 
   const resolveDeleteMeta = (card) => {
@@ -363,7 +367,12 @@ function bindJournalLongPressDelete(dayList, editAllowed, ctx) {
 
     const headLabel = String(card.querySelector(".session-head div")?.textContent || "").trim();
     if (toolbarTitle) {
-      toolbarTitle.textContent = headLabel ? `Выбрано: ${headLabel}` : "Выбрано посещение";
+      toolbarTitle.textContent = meta.isRestore ? "Вернуть посещение?" : "Удалить посещение?";
+    }
+    if (toolbarSubtitle) {
+      toolbarSubtitle.textContent = headLabel
+        ? `Занятие: ${headLabel}`
+        : "Выбранное занятие можно будет вернуть позже.";
     }
     confirmButton.textContent = meta.label;
     confirmButton.classList.toggle("is-restore", Boolean(meta.isRestore));
