@@ -616,6 +616,10 @@ input[type="radio"] {
   z-index: 250;
 }
 
+.session-delete-mode .session-mark-controls {
+  display: none !important;
+}
+
 .session-deleted {
   border-style: dashed;
   opacity: 0.92;
