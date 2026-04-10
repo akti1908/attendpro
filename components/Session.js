@@ -110,7 +110,7 @@ function renderPersonalSession(entry, editable) {
 
   return `
     <article
-      class="session personal ${isMarked ? "session-marked" : ""} ${isDeleted ? "session-deleted" : ""}"
+      class="session personal ${isMarked ? "session-marked" : ""} ${isTransferred ? "session-transferred" : ""} ${isDeleted ? "session-deleted" : ""}"
       data-entry-type="personal"
       data-student-id="${entry.studentId}"
       data-session-card="${session.id}"
