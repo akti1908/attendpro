@@ -2,6 +2,7 @@
 export function renderSalary(root, ctx) {
   const monthValue = ctx.state.salaryMonth;
   const report = ctx.getSalaryReport(monthValue);
+  const duty = report.duty || { hours: 0, ratePerHour: 0, income: 0 };
   const salarySharePercent = Number(report.salarySharePercent || 50);
 
   root.innerHTML = `
@@ -20,9 +21,13 @@ export function renderSalary(root, ctx) {
         <div class="stat-card"><span class="muted">Продажи сплит-пакетов</span><strong>${formatMoney(report.sales.split)} сом</strong></div>
         <div class="stat-card"><span class="muted">Продажи мини-групп</span><strong>${formatMoney(report.sales.miniGroup)} сом</strong></div>
         <div class="stat-card"><span class="muted">Сумма продаж за месяц</span><strong>${formatMoney(report.totalSales)} сом</strong></div>
+        <div class="stat-card"><span class="muted">ЗП с тренировок (${salarySharePercent}%)</span><strong>${formatMoney(report.totalTrainingIncome || 0)} сом</strong></div>
         <div class="stat-card"><span class="muted">Всего занятий</span><strong>${report.totalSessions}</strong></div>
-        <div class="stat-card"><span class="muted">Отработанные часы</span><strong>${report.totalWorkedHours}</strong></div>
-        <div class="stat-card"><span class="muted">Итоговая ЗП (${salarySharePercent}%)</span><strong>${formatMoney(report.totalIncome)} сом</strong></div>
+        <div class="stat-card"><span class="muted">Отработанные часы (тренировки)</span><strong>${report.totalWorkedHours}</strong></div>
+        <div class="stat-card"><span class="muted">Часы дежурства (месяц)</span><strong>${Number(duty.hours || 0)}</strong></div>
+        <div class="stat-card"><span class="muted">Ставка дежурства</span><strong>${formatMoney(duty.ratePerHour || 0)} сом/ч</strong></div>
+        <div class="stat-card"><span class="muted">ЗП за дежурство</span><strong>${formatMoney(duty.income || 0)} сом</strong></div>
+        <div class="stat-card"><span class="muted">Итоговая ЗП (тренировки + дежурство)</span><strong>${formatMoney(report.totalIncome)} сом</strong></div>
       </div>
     </section>
 

@@ -9,6 +9,10 @@ export function renderHome(root, ctx) {
   const editAllowed = ctx.actions.isEditingAllowedForSelectedDate();
   const showEditToggle = selectedDate !== todayISO;
   const sessions = ctx.getSessionsForDate(selectedDate);
+  const dutyHours = Array.isArray(ctx.getDutyHoursForDate?.(selectedDate))
+    ? ctx.getDutyHoursForDate(selectedDate)
+    : [];
+  const workHours = getWorkHoursForJournalDate(selectedDate, ctx);
   const selectedWeekDay = getWeekDayLabel(selectedDate, ctx);
   const selectedDateLabel = selectedWeekDay
     ? `${ctx.formatDate(selectedDate)} (${selectedWeekDay})`
@@ -59,9 +63,13 @@ export function renderHome(root, ctx) {
   bindJournalSwipeNavigation(root, ctx);
 
   const dayList = root.querySelector("#day-list");
-  dayList.innerHTML = sessions.length
-    ? sessions.map((entry) => renderSession(entry, { editable: editAllowed })).join("")
-    : `<p class="muted">На выбранный день занятий нет.</p>`;
+  dayList.innerHTML = renderJournalByHours({
+    sessions,
+    selectedDate,
+    workHours,
+    dutyHours,
+    editable: editAllowed
+  });
   bindJournalLongPressDelete(dayList, editAllowed, ctx);
 
   root.querySelector("#prev-day").addEventListener("click", () => {
@@ -268,6 +276,132 @@ export function renderHome(root, ctx) {
       sendTodayReportButton.disabled = false;
     }
   });
+}
+
+function renderJournalByHours({ sessions, selectedDate, workHours, dutyHours, editable }) {
+  const rows = Array.isArray(sessions) ? sessions : [];
+  const dutySet = new Set(
+    (Array.isArray(dutyHours) ? dutyHours : [])
+      .map((hour) => Number(hour))
+      .filter((hour) => Number.isInteger(hour) && hour >= 0 && hour <= 23)
+  );
+  const bucket = new Map();
+  const sessionHours = [];
+
+  rows.forEach((entry) => {
+    const hour = getSessionStartHour(entry);
+    if (!Number.isInteger(hour)) return;
+    sessionHours.push(hour);
+    if (!bucket.has(hour)) bucket.set(hour, []);
+    bucket.get(hour).push(entry);
+  });
+
+  const rangeHours = buildJournalHourRange({
+    workHours,
+    sessionHours,
+    dutyHours: [...dutySet]
+  });
+
+  if (!rangeHours.length) {
+    return `<p class="muted">На выбранный день занятий нет.</p>`;
+  }
+
+  return rangeHours
+    .map((hour) => {
+      const entries = bucket.get(hour) || [];
+      const hasSessions = entries.length > 0;
+      const isDutyHour = dutySet.has(hour);
+      const hourLabel = formatHour(hour);
+      const blockClass = [
+        "journal-hour-block",
+        hasSessions ? "has-sessions" : "is-empty",
+        isDutyHour ? "is-duty-hour" : ""
+      ].filter(Boolean).join(" ");
+
+      const content = hasSessions
+        ? entries.map((entry) => renderSession(entry, { editable })).join("")
+        : `
+          <article class="journal-empty-slot ${isDutyHour ? "is-duty-window" : ""}">
+            <strong>${isDutyHour ? "Дежурство" : "Окошко"}</strong>
+            <span class="muted">${isDutyHour ? "Свободно" : "Никого"}</span>
+          </article>
+        `;
+
+      return `
+        <section class="${blockClass}" data-hour-block="${hour}" data-date="${selectedDate}">
+          <header class="journal-hour-head">
+            <strong class="journal-hour-label">${hourLabel}</strong>
+            ${isDutyHour ? `<span class="journal-hour-duty-tag">Дежурство</span>` : ""}
+          </header>
+          <div class="journal-hour-content">
+            ${content}
+          </div>
+        </section>
+      `;
+    })
+    .join("");
+}
+
+function getSessionStartHour(entry) {
+  const raw = String(entry?.data?.time || "").trim();
+  if (!raw) return null;
+  const hour = Number(raw.slice(0, 2));
+  if (!Number.isInteger(hour) || hour < 0 || hour > 23) return null;
+  return hour;
+}
+
+function getWorkHoursForJournalDate(dateISO, ctx) {
+  const workSchedule = ctx?.workSchedule || {};
+  const days = Array.isArray(workSchedule.days) ? workSchedule.days.map((day) => Number(day)) : [];
+  const startHour = Number(workSchedule.startHour);
+  const endHour = Number(workSchedule.endHour);
+  if (!Number.isInteger(startHour) || !Number.isInteger(endHour)) return [];
+
+  const date = parseISODateSafe(dateISO);
+  if (!date) return [];
+  if (days.length && !days.includes(date.getDay())) return [];
+
+  const minHour = Math.max(0, Math.min(23, Math.min(startHour, endHour)));
+  const maxHour = Math.max(0, Math.min(23, Math.max(startHour, endHour)));
+  const hours = [];
+  for (let hour = minHour; hour <= maxHour; hour += 1) {
+    hours.push(hour);
+  }
+  return hours;
+}
+
+function buildJournalHourRange({ workHours, sessionHours, dutyHours }) {
+  const source = [
+    ...(Array.isArray(workHours) ? workHours : []),
+    ...(Array.isArray(sessionHours) ? sessionHours : []),
+    ...(Array.isArray(dutyHours) ? dutyHours : [])
+  ]
+    .map((hour) => Number(hour))
+    .filter((hour) => Number.isInteger(hour) && hour >= 0 && hour <= 23);
+
+  if (!source.length) return [];
+  const minHour = Math.min(...source);
+  const maxHour = Math.max(...source);
+  const range = [];
+  for (let hour = minHour; hour <= maxHour; hour += 1) {
+    range.push(hour);
+  }
+  return range;
+}
+
+function parseISODateSafe(value) {
+  const parts = String(value || "").split("-").map(Number);
+  if (parts.length !== 3 || parts.some((part) => !Number.isInteger(part))) return null;
+  const [year, month, day] = parts;
+  const date = new Date(year, month - 1, day);
+  if (Number.isNaN(date.getTime())) return null;
+  return date;
+}
+
+function formatHour(hour) {
+  const normalized = Number(hour);
+  if (!Number.isInteger(normalized)) return "00:00";
+  return `${String(normalized).padStart(2, "0")}:00`;
 }
 
 function bindJournalLongPressDelete(dayList, editAllowed, ctx) {

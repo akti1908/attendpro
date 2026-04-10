@@ -4,6 +4,7 @@ import { renderGroupsManager } from "./components/GroupCard.js";
 import { renderSession } from "./components/Session.js";
 import { renderStatistics } from "./components/Statistics.js";
 import { renderSalary } from "./components/Salary.js";
+import { renderDuty } from "./components/Duty.js";
 import { renderAuth } from "./components/Auth.js";
 import { renderSettings } from "./components/Settings.js";
 
@@ -46,6 +47,9 @@ const TRAINER_CATEGORIES = ["I", "II", "III"];
 const PACKAGE_COUNTS = [1, 5, 10, 25];
 const DEFAULT_TRAINER_CATEGORY = "I";
 const DEFAULT_COACH_PERCENT = 50;
+const DEFAULT_DUTY_START_HOUR = 7;
+const DEFAULT_DUTY_END_HOUR = 23;
+const DEFAULT_DUTY_RATE_PER_HOUR = 0;
 const DEFAULT_USER_SETTINGS = {
   trainerCategory: DEFAULT_TRAINER_CATEGORY,
   coachPercent: DEFAULT_COACH_PERCENT,
@@ -60,6 +64,20 @@ const DEFAULT_USER_SETTINGS = {
     hour: 18,
     chatId: "",
     lastSentSlotKey: ""
+  },
+  duty: {
+    startHour: DEFAULT_DUTY_START_HOUR,
+    endHour: DEFAULT_DUTY_END_HOUR,
+    hourlyRate: DEFAULT_DUTY_RATE_PER_HOUR,
+    slotsByDay: {
+      0: [],
+      1: [],
+      2: [],
+      3: [],
+      4: [],
+      5: [],
+      6: []
+    }
   }
 };
 const CATEGORY_PRICE_TABLES = {
@@ -139,6 +157,7 @@ function bindTopNavigation() {
     "go-today": "home",
     "go-students": "students",
     "go-groups": "groups",
+    "go-duty": "duty",
     "go-stats": "stats",
     "go-salary": "salary",
     "go-settings": "settings"
@@ -368,6 +387,33 @@ function setWorkScheduleSettings(payload) {
     workSchedule: nextWorkSchedule
   });
   saveState({ dataChanged: true });
+  renderApp();
+}
+
+function setDutySettings(payload) {
+  const ownerId = getCurrentUserId();
+  if (!ownerId) return;
+
+  const current = getUserSettings(ownerId);
+  const currentDuty = normalizeDutySettings(current.duty || {});
+  const nextDuty = normalizeDutySettings({
+    ...currentDuty,
+    ...(payload || {})
+  });
+
+  const hasChanges = JSON.stringify(currentDuty) !== JSON.stringify(nextDuty);
+  if (!hasChanges) return;
+
+  setUserSettingsForUser(ownerId, {
+    duty: nextDuty
+  });
+  saveState({ dataChanged: true });
+  renderApp();
+}
+
+function setDutyMonth(monthISO) {
+  state.dutyMonth = ensureMonthISO(monthISO, getTodayISO().slice(0, 7));
+  saveState();
   renderApp();
 }
 
@@ -934,6 +980,7 @@ function buildCloudStatePayload() {
   return {
     selectedDate: state.selectedDate,
     calendarDate: state.calendarDate,
+    dutyMonth: state.dutyMonth,
     salaryMonth: state.salaryMonth,
     editMode: false,
     students: getStudentsForUser(ownerId),
@@ -955,6 +1002,7 @@ function applyCloudStatePayload(payload, user) {
     ...state,
     selectedDate: payload.selectedDate ?? state.selectedDate,
     calendarDate: payload.calendarDate ?? state.calendarDate,
+    dutyMonth: payload.dutyMonth ?? state.dutyMonth,
     salaryMonth: payload.salaryMonth ?? state.salaryMonth,
     editMode: false,
     students: mergeOwnedRows(
@@ -1161,6 +1209,8 @@ function renderApp() {
     renderStudentsManager(root, ctx);
   } else if (state.view === "groups") {
     renderGroupsManager(root, ctx);
+  } else if (state.view === "duty") {
+    renderDuty(root, ctx);
   } else if (state.view === "stats") {
     renderStatistics(root, ctx);
   } else if (state.view === "salary") {
@@ -1208,6 +1258,7 @@ function markActiveNavButton() {
     home: "go-today",
     students: "go-students",
     groups: "go-groups",
+    duty: "go-duty",
     stats: "go-stats",
     salary: "go-salary",
     settings: "go-settings"
@@ -1241,6 +1292,7 @@ function buildContext() {
   const scopedState = buildScopedStateForContext();
   const userSettings = getUserSettings();
   const workSchedule = normalizeWorkSchedule(userSettings.workSchedule);
+  const dutySettings = normalizeDutySettings(userSettings.duty);
   const workHours = getWorkHoursFromSchedule(workSchedule);
   const packageOptions = getPackageOptionsByCategory(userSettings.trainerCategory);
   const sessionsIndex = buildSessionsIndex(scopedState.students, scopedState.groups);
@@ -1249,6 +1301,7 @@ function buildContext() {
     currentUser: getCurrentUser(),
     userSettings,
     workSchedule,
+    dutySettings,
     workHours,
     getWorkHoursForDays: (scheduleDays = []) => {
       const hours = getAvailableWorkHours(workSchedule, scheduleDays);
@@ -1264,6 +1317,8 @@ function buildContext() {
     dayLabel,
     getSessionsForDate: (dateISO) => getSessionsForDate(dateISO, sessionsIndex),
     getSessionsByDate: (dateISO) => getSessionsByDate(dateISO, sessionsIndex),
+    getDutyHoursForDate: (dateISO) => getDutyHoursForDate(dateISO, dutySettings),
+    getDutyReport,
     getStatistics,
     getSalaryReport,
     actions: {
@@ -1298,6 +1353,8 @@ function buildContext() {
       setTheme,
       setTrainerCategory,
       setWorkScheduleSettings,
+      setDutySettings,
+      setDutyMonth,
       setAutoReportSettings,
       syncCloudNow,
       sendTodayReportToTelegram,
@@ -1316,6 +1373,7 @@ function createInitialState() {
     view: "home",
     selectedDate: todayISO,
     calendarDate: monthStartISO(todayISO),
+    dutyMonth: todayISO.slice(0, 7),
     salaryMonth: todayISO.slice(0, 7),
     users: [],
     auth: {
@@ -1375,6 +1433,7 @@ function normalizeState(input) {
   next.view = isAllowedView(next.view) ? next.view : "home";
   next.selectedDate = ensureISODate(next.selectedDate, defaults.selectedDate);
   next.calendarDate = ensureISODate(next.calendarDate, monthStartISO(next.selectedDate));
+  next.dutyMonth = ensureMonthISO(next.dutyMonth, defaults.dutyMonth);
   next.salaryMonth = ensureMonthISO(next.salaryMonth, defaults.salaryMonth);
   next.users = Array.isArray(next.users) ? next.users.map(normalizeUser).filter(Boolean) : [];
   next.auth = normalizeAuth(next.auth, next.users);
@@ -1463,7 +1522,7 @@ function getMigrationFallbackOwnerId(users) {
 }
 
 function isAllowedView(value) {
-  return ["home", "students", "groups", "stats", "salary", "settings"].includes(value);
+  return ["home", "students", "groups", "duty", "stats", "salary", "settings"].includes(value);
 }
 
 function normalizeOwnerId(ownerId, fallbackOwnerId = null) {
@@ -2357,6 +2416,61 @@ function normalizeWorkSchedule(rawWorkSchedule = {}) {
   };
 }
 
+function createEmptyDutySlotsByDay() {
+  return {
+    0: [],
+    1: [],
+    2: [],
+    3: [],
+    4: [],
+    5: [],
+    6: []
+  };
+}
+
+function normalizeDutySlotsByDay(rawSlotsByDay, startHour, endHour) {
+  const source = rawSlotsByDay && typeof rawSlotsByDay === "object" && !Array.isArray(rawSlotsByDay)
+    ? rawSlotsByDay
+    : createEmptyDutySlotsByDay();
+
+  const normalized = createEmptyDutySlotsByDay();
+  weekDays.forEach((day) => {
+    const rawValue = source[day.jsDay] ?? source[String(day.jsDay)];
+    const list = Array.isArray(rawValue) ? rawValue : [];
+    const uniqueSorted = [...new Set(
+      list
+        .map((value) => Number(value))
+        .filter((hour) => Number.isInteger(hour) && hour >= startHour && hour <= endHour)
+    )].sort((a, b) => a - b);
+    normalized[String(day.jsDay)] = uniqueSorted;
+  });
+
+  return normalized;
+}
+
+function normalizeDutyHourlyRate(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric < 0) return DEFAULT_DUTY_RATE_PER_HOUR;
+  return Math.round(numeric);
+}
+
+function normalizeDutySettings(rawDuty = {}) {
+  let startHour = normalizeWorkHour(rawDuty?.startHour, DEFAULT_DUTY_START_HOUR);
+  let endHour = normalizeWorkHour(rawDuty?.endHour, DEFAULT_DUTY_END_HOUR);
+  if (endHour < startHour) {
+    const swap = startHour;
+    startHour = endHour;
+    endHour = swap;
+  }
+
+  return {
+    startHour,
+    endHour,
+    hourlyRate: normalizeDutyHourlyRate(rawDuty?.hourlyRate),
+    slotsByDay: normalizeDutySlotsByDay(rawDuty?.slotsByDay, startHour, endHour)
+  };
+}
+
 function getWorkHoursFromSchedule(workSchedule) {
   const normalized = normalizeWorkSchedule(workSchedule);
   const hours = [];
@@ -2426,7 +2540,8 @@ function normalizeUserSettings(rawSettings) {
     trainerCategory: normalizeTrainerCategory(rawSettings?.trainerCategory),
     coachPercent: normalizeCoachPercent(rawSettings?.coachPercent),
     workSchedule: normalizeWorkSchedule(rawSettings?.workSchedule),
-    autoReport: normalizeAutoReportSettings(rawSettings?.autoReport)
+    autoReport: normalizeAutoReportSettings(rawSettings?.autoReport),
+    duty: normalizeDutySettings(rawSettings?.duty)
   };
 }
 
@@ -2733,6 +2848,118 @@ function dayLabel(jsDay) {
   return found ? found.label : "-";
 }
 
+function getDutyHoursForDate(dateISO, dutySettings = null) {
+  const fallbackMonth = monthOfDate(ensureISODate(dateISO, getTodayISO()));
+  const fallbackSettings = getCurrentUserId()
+    ? getUserSettings().duty
+    : normalizeDutySettings({ startHour: DEFAULT_DUTY_START_HOUR, endHour: DEFAULT_DUTY_END_HOUR, hourlyRate: 0, slotsByDay: {} });
+  const normalizedDuty = normalizeDutySettings(dutySettings || fallbackSettings);
+  const jsDay = parseISODate(ensureISODate(dateISO, `${fallbackMonth}-01`)).getDay();
+  const hours = normalizedDuty.slotsByDay[String(jsDay)];
+  return Array.isArray(hours) ? hours.slice() : [];
+}
+
+function isDutyHourActive(dateISO, hour, dutySettings = null) {
+  const normalizedHour = Number(hour);
+  if (!Number.isInteger(normalizedHour)) return false;
+  return getDutyHoursForDate(dateISO, dutySettings).includes(normalizedHour);
+}
+
+function getWeekStartMondayISO(dateISO = getTodayISO()) {
+  const date = parseISODate(ensureISODate(dateISO, getTodayISO()));
+  const jsDay = date.getDay();
+  const offset = jsDay === 0 ? -6 : 1 - jsDay;
+  date.setDate(date.getDate() + offset);
+  return toISODate(date);
+}
+
+function buildHourIntervals(hours) {
+  const source = [...new Set(
+    (Array.isArray(hours) ? hours : [])
+      .map((hour) => Number(hour))
+      .filter((hour) => Number.isInteger(hour) && hour >= 0 && hour <= 23)
+  )].sort((a, b) => a - b);
+
+  if (!source.length) return [];
+
+  const intervals = [];
+  let startHour = source[0];
+  let endHour = source[0];
+
+  for (let index = 1; index < source.length; index += 1) {
+    const hour = source[index];
+    if (hour === endHour + 1) {
+      endHour = hour;
+      continue;
+    }
+    intervals.push({ startHour, endHourExclusive: Math.min(24, endHour + 1) });
+    startHour = hour;
+    endHour = hour;
+  }
+
+  intervals.push({ startHour, endHourExclusive: Math.min(24, endHour + 1) });
+  return intervals;
+}
+
+function countDutyHoursInMonth(monthISO, dutySettings = null) {
+  const month = ensureMonthISO(monthISO, getTodayISO().slice(0, 7));
+  const normalizedDuty = normalizeDutySettings(dutySettings || getUserSettings().duty);
+  const startISO = monthStartISO(month);
+  const endISO = monthEndISO(month);
+
+  let cursor = startISO;
+  let guard = 0;
+  let hours = 0;
+  while (compareISODate(cursor, endISO) <= 0 && guard < 62) {
+    hours += getDutyHoursForDate(cursor, normalizedDuty).length;
+    cursor = addDaysISO(cursor, 1);
+    guard += 1;
+  }
+  return hours;
+}
+
+function getDutyReport(monthISO) {
+  const ownerId = getCurrentUserId();
+  const fallbackMonth = ensureMonthISO(state.dutyMonth, getTodayISO().slice(0, 7));
+  const targetMonth = ensureMonthISO(monthISO, fallbackMonth);
+  const settings = ownerId
+    ? normalizeDutySettings(getUserSettings(ownerId).duty)
+    : normalizeDutySettings(DEFAULT_USER_SETTINGS.duty);
+
+  const weekStartISO = getWeekStartMondayISO(getTodayISO());
+  const weekRows = [];
+  let weeklyHours = 0;
+  for (let index = 0; index < 7; index += 1) {
+    const dateISO = addDaysISO(weekStartISO, index);
+    const hours = getDutyHoursForDate(dateISO, settings);
+    weeklyHours += hours.length;
+    weekRows.push({
+      dateISO,
+      dayLabel: dayLabel(parseISODate(dateISO).getDay()),
+      intervals: buildHourIntervals(hours),
+      hoursCount: hours.length
+    });
+  }
+
+  const monthHours = countDutyHoursInMonth(targetMonth, settings);
+  const monthIncome = roundMoney(monthHours * Number(settings.hourlyRate || 0));
+
+  return {
+    monthISO: targetMonth,
+    startDateISO: monthStartISO(targetMonth),
+    endDateISO: monthEndISO(targetMonth),
+    startHour: settings.startHour,
+    endHour: settings.endHour,
+    hourlyRate: Number(settings.hourlyRate || 0),
+    slotsByDay: settings.slotsByDay,
+    weekStartISO,
+    weeklyHours,
+    monthHours,
+    monthIncome,
+    weekRows
+  };
+}
+
 function createId(prefix) {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}-${Date.now().toString(36)}`;
 }
@@ -2945,6 +3172,7 @@ function buildEmptyAccountData() {
   return {
     selectedDate: todayISO,
     calendarDate: monthStartISO(todayISO),
+    dutyMonth: todayISO.slice(0, 7),
     salaryMonth: todayISO.slice(0, 7),
     editMode: false,
     students: [],
@@ -4383,6 +4611,7 @@ function buildSalaryReport(monthISO) {
   const startDateISO = monthStartISO(month);
   const endDateISO = monthEndISO(month);
   const students = getStudentsForUser();
+  const dutySettings = normalizeDutySettings(getUserSettings().duty);
   const salesSummary = buildMonthlySalesSummary(month, students);
   const salaryShare = 0.5;
   const salarySharePercent = 50;
@@ -4442,10 +4671,14 @@ function buildSalaryReport(monthISO) {
 
   const totalSessions = personalSessions + splitSessions + miniGroupSessions;
   const totalWorkedHours = buildMonthlyWorkedHours(month);
+  const dutyHours = countDutyHoursInMonth(month, dutySettings);
+  const dutyRatePerHour = Number(dutySettings.hourlyRate || 0);
+  const dutyIncome = roundMoney(dutyHours * dutyRatePerHour);
   const personalIncome = roundMoney(salesSummary.personal * salaryShare);
   const splitIncome = roundMoney(salesSummary.split * salaryShare);
   const miniGroupIncome = roundMoney(salesSummary.miniGroup * salaryShare);
-  const totalIncome = roundMoney(salesSummary.total * salaryShare);
+  const totalTrainingIncome = roundMoney(salesSummary.total * salaryShare);
+  const totalIncome = roundMoney(totalTrainingIncome + dutyIncome);
 
   return {
     monthISO: month,
@@ -4475,6 +4708,12 @@ function buildSalaryReport(monthISO) {
     totalSales: salesSummary.total,
     totalSessions,
     totalWorkedHours,
+    duty: {
+      hours: dutyHours,
+      ratePerHour: dutyRatePerHour,
+      income: dutyIncome
+    },
+    totalTrainingIncome,
     totalIncome,
     rows
   };
@@ -4553,7 +4792,10 @@ function getSalaryReport(monthISO) {
   const month = ensureMonthISO(monthISO, state.salaryMonth);
   const ownerId = getCurrentUserId();
   const closure = state.salaryClosures.find((item) => item.ownerId === ownerId && item.monthISO === month);
+  const dutySettings = normalizeDutySettings(getUserSettings(ownerId).duty);
   const salesFallback = buildMonthlySalesSummary(month);
+  const dutyHoursFallback = countDutyHoursInMonth(month, dutySettings);
+  const dutyRateFallback = Number(dutySettings.hourlyRate || 0);
   const workedHoursFallback = buildMonthlyWorkedHours(month);
   const salaryShare = 0.5;
   const salarySharePercent = 50;
@@ -4566,6 +4808,10 @@ function getSalaryReport(monthISO) {
       miniGroup: roundMoney(Number(snapshotSales.miniGroup ?? salesFallback.miniGroup))
     };
     const totalSales = roundMoney(Number(closure.snapshot?.totalSales ?? salesFallback.total));
+    const dutyHours = Math.max(0, Number(closure.snapshot?.duty?.hours ?? dutyHoursFallback));
+    const dutyRatePerHour = Math.max(0, Number(closure.snapshot?.duty?.ratePerHour ?? dutyRateFallback));
+    const dutyIncome = roundMoney(Number(closure.snapshot?.duty?.income ?? dutyHours * dutyRatePerHour));
+    const totalTrainingIncome = roundMoney(totalSales * salaryShare);
     const snapshotRows = Array.isArray(closure.snapshot?.rows) ? closure.snapshot.rows : [];
     const rows = snapshotRows.map((row) => {
       const hasSales = row?.sales !== undefined && row?.sales !== null;
@@ -4613,7 +4859,13 @@ function getSalaryReport(monthISO) {
       totalSales,
       totalSessions,
       totalWorkedHours: Number(closure.snapshot?.totalWorkedHours ?? workedHoursFallback),
-      totalIncome: roundMoney(totalSales * salaryShare),
+      duty: {
+        hours: dutyHours,
+        ratePerHour: dutyRatePerHour,
+        income: dutyIncome
+      },
+      totalTrainingIncome,
+      totalIncome: roundMoney(totalTrainingIncome + dutyIncome),
       isClosed: true,
       closedAt: closure.closedAt
     };
@@ -4934,6 +5186,7 @@ function importBackupFromFile(file) {
           ...state,
           selectedDate: normalizedIncoming.selectedDate ?? state.selectedDate,
           calendarDate: normalizedIncoming.calendarDate ?? state.calendarDate,
+          dutyMonth: normalizedIncoming.dutyMonth ?? state.dutyMonth,
           salaryMonth: normalizedIncoming.salaryMonth ?? state.salaryMonth,
           editMode: false,
           students: mergeOwnedRows(state.students, pickOwnedRowsFromImport(normalizedIncoming.students, ownerId), ownerId),
