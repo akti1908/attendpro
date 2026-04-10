@@ -29,7 +29,7 @@ function renderPersonalSession(entry, editable) {
   const isFinal = session.status === PERSONAL_PRESENT_STATUS || session.status === PERSONAL_MISSED_STATUS;
   const isTransferred = session.status === PERSONAL_TRANSFERRED_STATUS;
   const isMarked = isFinal || isTransferred || isDeleted;
-  const canReschedule = !isDeleted && session.status === PERSONAL_PLANNED_STATUS;
+  const canReschedule = !isDeleted && (session.status === PERSONAL_PLANNED_STATUS || isFinal);
   const safeStudentName = escapeHtml(entry.studentName);
   const safeStatus = escapeHtml(resolvePersonalStatusLabel(session.status, isDeleted));
   const transferInfo = renderTransferInfo(session);

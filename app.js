@@ -3967,7 +3967,9 @@ function reschedulePersonalSession(studentId, sessionId, options = {}) {
   const session = student.sessions.find((item) => item.id === sessionId);
   if (!session) return;
   if (isPersonalSessionDeleted(session)) return;
-  if (session.status !== "запланировано") return;
+  const previousStatus = normalizePersonalStatus(session.status);
+  const canReschedule = previousStatus === "запланировано" || isFinalPersonalStatus(previousStatus);
+  if (!canReschedule) return;
   if (isDateLocked(session.date)) {
     alert("Месяц этой даты уже закрыт. Редактирование недоступно.");
     return;
@@ -4013,14 +4015,21 @@ function reschedulePersonalSession(studentId, sessionId, options = {}) {
 
   const sourceDate = session.date;
   const sourceTime = session.time;
+  const wasFinal = isFinalPersonalStatus(previousStatus);
   session.status = "перенесено";
   session.transferToDate = nextDate;
   session.transferToTime = nextTime;
   session.transferMode = transferMode;
+  if (wasFinal && shouldAffectRemainingTrainings(student, session)) {
+    student.remainingTrainings = Math.min(
+      Number(student.totalTrainings || 0),
+      Number(student.remainingTrainings || 0) + 1
+    );
+  }
   appendSessionHistoryEntry(
     session,
     "reschedule",
-    `Перенесено ${transferMode === "date" ? "на выбранную дату" : "по графику"}: ${formatDate(sourceDate)} ${sourceTime} -> ${formatDate(nextDate)} ${nextTime}`
+    `Перенесено ${transferMode === "date" ? "на выбранную дату" : "по графику"}: ${formatDate(sourceDate)} ${sourceTime} -> ${formatDate(nextDate)} ${nextTime} (было: ${previousStatus})`
   );
 
   const transferredSession = {
